@@ -7,6 +7,7 @@
 | `@xterm/xterm@6.1.0-beta.339.cibot.3` | [4e7307bd080809b278a294b49b953656ebb0c586](https://github.com/cibot-pionl/xterm.js/commit/4e7307bd080809b278a294b49b953656ebb0c586) | `bfac782c3f8dcd9314b6bc3ba8742e52d0abf246b4ccefd8018857f236aa05d4` |
 | `@xterm/xterm@6.1.0-beta.339.cibot.4` | [0664d4b696951b80c2a13a926121e6b5e5015b54](https://github.com/cibot-pionl/xterm.js/commit/0664d4b696951b80c2a13a926121e6b5e5015b54) | `15371c61dd119c54ab34dafde02d433acc45438c904a255fba833efbccd59026` |
 | `@xterm/xterm@6.1.0-beta.339.cibot.5` | [716b2573bd034f62c091fb5b069a9db687371362](https://github.com/cibot-pionl/xterm.js/commit/716b2573bd034f62c091fb5b069a9db687371362) | `aae89418f1447556549beb72e7b0ee44a24ce2507583be5455e2043800f92b49` |
+| `@xterm/xterm@6.1.0-beta.339.cibot.6` | [7aea0bb713729510373cb45ce5fe3ceac22848cd](https://github.com/cibot-pionl/xterm.js/commit/7aea0bb713729510373cb45ce5fe3ceac22848cd) | `027e5bbbc2b02ca02613734fa3fdea4504f6ebdc33c06fd58c30bac75bb7106d` |
 
 Use the URL for a specific package commit when adding a dependency. The source
 branch contains the reviewable changes. The package includes the MIT license,
