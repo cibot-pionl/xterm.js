@@ -60,7 +60,7 @@ export interface ICoreTerminal {
 
 export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
   protected readonly _instantiationService: IInstantiationService;
-  protected readonly _bufferService: BufferService;
+  protected readonly _bufferService: IBufferService;
   protected readonly _logService: ILogService;
   protected readonly _charsetService: ICharsetService;
   protected readonly _oscLinkService: IOscLinkService;
@@ -163,6 +163,7 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
     this._writeBuffer.write(data, callback);
   }
 
+  /** Schedule a buffer edit in parser order, including writes paused in async handlers. */
   protected _enqueueAfterWrites(callback: () => void): void {
     this._writeBuffer.enqueueCallback(callback);
   }

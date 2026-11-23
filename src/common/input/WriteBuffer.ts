@@ -172,6 +172,7 @@ export class WriteBuffer extends Disposable {
     this._syncCalls = 0;
   }
 
+  /** Queue a buffer edit between writes. Even empty user writes reach the parser. */
   public enqueueCallback(callback: () => void): void {
     this.write(CALLBACK_ONLY_WRITE, callback);
   }

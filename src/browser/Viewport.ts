@@ -153,21 +153,28 @@ export class Viewport extends Disposable {
     };
   }
 
-  public queueSync(): void {
+  public queueSync(ydisp?: number): void {
+    // Update state
+    if (ydisp !== undefined) {
+      this._latestYDisp = ydisp;
+    }
+
     // Don't queue more than one callback
     if (this._queuedAnimationFrame !== undefined) {
       return;
     }
     this._queuedAnimationFrame = this._renderService.addRefreshCallback(() => {
       this._queuedAnimationFrame = undefined;
-      this._sync();
+      this._sync(this._latestYDisp);
     });
   }
 
   /**
-   * Move the native scrollbar to the rebased buffer before the next input.
+   * Page edits move buffer coordinates outside the normal scroll path. Drop
+   * the previous target before another wheel event can use the old position.
    */
   public syncScrollPosition(): void {
+    this._latestYDisp = undefined;
     this._sync();
   }
 
@@ -213,8 +220,8 @@ export class Viewport extends Disposable {
     this._isHandlingScroll = true;
     const newRow = Math.round(e.scrollTop / this._renderService.dimensions.css.cell.height);
     const diff = newRow - this._bufferService.buffer.ydisp;
-    this._latestYDisp = newRow;
     if (diff !== 0) {
+      this._latestYDisp = newRow;
       this._onRequestScrollLines.fire(diff);
     }
     this._isHandlingScroll = false;

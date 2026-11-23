@@ -4,7 +4,9 @@
  */
 
 import { MockCompositionHelper, MockRenderer, MockViewport, TestTerminal } from './TestUtils.test';
-import type { IBrowser } from './Types';
+import type { IBrowser, ITerminal } from './Types';
+import { Terminal } from './public/Terminal';
+import type { IScrollbackRow } from '@xterm/xterm';
 import { assert } from 'chai';
 import { DEFAULT_ATTR_DATA } from '../common/buffer/BufferLine';
 import { CellData } from '../common/buffer/CellData';
@@ -1195,9 +1197,145 @@ describe('Terminal', () => {
     });
   });
 
-  describe('prependScrollback', () => {
+  describe('scrollback pages', () => {
+    const row = (text: string): IScrollbackRow => ({ cells: [{ text, width: 1 }] });
+    let terminal: TestTerminal;
+
+    beforeEach(() => { terminal = new TestTerminal({ cols: 10, rows: 2, scrollback: 6 }); });
+    afterEach(() => terminal.dispose());
+
+    function head(): IMarker {
+      return terminal.registerMarker(-terminal.buffer.ybase - terminal.buffer.y);
+    }
+
+    function contents(): string[] {
+      const lines = terminal.buffer.lines;
+      return Array.from({ length: lines.length }, (_, index) => lines.get(index)!.translateToString(true));
+    }
+
+    it('gates all three operations on the proposed API option', () => {
+      const api = new Terminal({ allowProposedApi: false });
+      const marker = head();
+      try {
+        assert.throws(() => api.prependScrollback([], { columns: 10, head: marker }), /allowProposedApi/);
+        assert.throws(() => api.setScrollbackWindowActive(true), /allowProposedApi/);
+        assert.throws(() => api.updateScrollbackWindow([], { columns: 10, direction: 'older', discard: 0 }), /allowProposedApi/);
+      } finally {
+        api.dispose();
+      }
+    });
+
+    it('prepends through ITerminal and preserves markers, viewport and saved cursor', async () => {
+      const core: ITerminal = terminal;
+      await terminal.writeP('A\r\nB\x1b7\r\nC');
+      core.scrollToTop();
+      const marker = head();
+      assert.equal(await core.prependScrollback([{ cells: [{ text: '文', width: 2 }] }], { columns: 10, head: marker }), 'inserted');
+      assert.deepEqual(contents(), ['文', 'A', 'B', 'C']);
+      assert.equal(terminal.buffer.lines.get(0)!.getWidth(1), 0);
+      assert.deepEqual([marker.line, core.buffer.ydisp, core.buffer.ybase], [1, 1, 2]);
+      await terminal.writeP('\x1b8!');
+      assert.deepEqual(contents(), ['文', 'A', 'B!', 'C']);
+    });
+
+    it('leaves rows unchanged on stale anchors, invalid pages and insufficient capacity', async () => {
+      await terminal.writeP('A\r\nB\r\nC');
+      const anchor = { columns: 10, head: head() };
+      assert.equal(await terminal.prependScrollback([row('X')], { ...anchor, columns: 9 }), 'stale');
+      assert.equal(await terminal.prependScrollback([], anchor), 'invalid');
+      assert.equal(await terminal.prependScrollback([row('A'), row('\x1b')], anchor), 'invalid');
+      assert.equal(await terminal.prependScrollback(Array(6).fill(row('X')), anchor), 'capacity');
+      assert.deepEqual(contents(), ['A', 'B', 'C']);
+      assert.equal(anchor.head.line, 0);
+    });
+
+    it('pages both ways around visible rows while input and output use the live screen', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD\r\nE\r\nF');
+      assert.isFalse(terminal.setScrollbackWindowActive(true));
+      terminal.scrollToTop();
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+      const marker = head();
+      const removed = terminal.registerMarker(-2);
+      const options = { columns: 10, direction: 'older', discard: 1 } as const;
+      assert.equal(await terminal.updateScrollbackWindow([row('0')], options), 'inserted');
+      assert.deepEqual(contents(), ['0', 'A', 'B', 'C', 'E', 'F']);
+      assert.isTrue(removed.isDisposed);
+      assert.equal(marker.line, 1);
+      assert.equal(terminal.buffer.ydisp, 1);
+
+      const input: string[] = [];
+      terminal.onData(data => input.push(data));
+      terminal.input('q');
+      await terminal.writeP('\r\nG\r\nH');
+      assert.deepEqual(input, ['q']);
+      assert.deepEqual(contents(), ['0', 'A', 'B', 'C', 'G', 'H']);
+      assert.equal(terminal.buffer.ydisp, 2);
+
+      assert.equal(await terminal.updateScrollbackWindow([row('D')], { ...options, direction: 'newer' }), 'inserted');
+      assert.deepEqual(contents(), ['A', 'B', 'C', 'D', 'G', 'H']);
+      assert.equal(terminal.buffer.ydisp, 1);
+      assert.equal(marker.line, 0);
+      assert.isTrue(terminal.setScrollbackWindowActive(false));
+      terminal.scrollToBottom();
+      await terminal.writeP('\r\nI');
+      assert.equal(terminal.buffer.ydisp, terminal.buffer.ybase);
+      assert.deepEqual(contents(), ['A', 'B', 'C', 'D', 'G', 'H', 'I']);
+    });
+
+    it('keeps alternate-screen writes separate and drops the archive before normal-buffer reflow', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD');
+      terminal.scrollToTop();
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+      const marker = head();
+      await terminal.writeP('\x1b[?1049hX\r\nY\r\nZ');
+      const options = { columns: 10, direction: 'older', discard: 0 } as const;
+      assert.equal(await terminal.updateScrollbackWindow([row('0')], options), 'stale');
+      assert.deepEqual(contents(), ['Y', 'Z']);
+      await terminal.writeP('\x1b[?1049l');
+      assert.deepEqual(contents(), ['A', 'B', 'C', 'D']);
+      terminal.resize(11, 2);
+      assert.isTrue(marker.isDisposed);
+      assert.deepEqual(contents(), ['C', 'D']);
+      assert.deepEqual([terminal.buffer.ydisp, terminal.buffer.ybase], [0, 0]);
+      await terminal.writeP('\r\nE');
+      assert.deepEqual(contents(), ['C', 'D', 'E']);
+    });
+
+    it('keeps the current viewport and wrap boundaries intact on a rejected shift', async () => {
+      await terminal.writeP('0123456789B\r\nC\r\nD\r\nE\r\nF');
+      terminal.scrollToTop();
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+      const options = { columns: 10, direction: 'newer', discard: 1 } as const;
+      assert.equal(await terminal.updateScrollbackWindow([row('X')], options), 'stale');
+      terminal.scrollToLine(1);
+      assert.isTrue(terminal.buffer.lines.get(1)!.isWrapped);
+      assert.equal(await terminal.updateScrollbackWindow([row('X')], options), 'invalid');
+      assert.deepEqual(contents(), ['0123456789', 'B', 'C', 'D', 'E', 'F']);
+      assert.equal(terminal.buffer.ydisp, 1);
+    });
+
+    it('resolves an aborted page while the parser is paused and admits the next page', async () => {
+      await terminal.writeP('A\r\nB\r\nC');
+      let release!: (handled: boolean) => void;
+      let started!: () => void;
+      const ready = new Promise<void>(resolve => { started = resolve; });
+      terminal.registerOscHandler(1337, () => new Promise<boolean>(resolve => { release = resolve; started(); }));
+      terminal.write('\x1b]1337;pause\x07');
+      await ready;
+      const controller = new AbortController();
+      const anchor = { columns: 10, head: head() };
+      const first = terminal.prependScrollback([row('X')], { ...anchor, signal: controller.signal });
+      assert.equal(await terminal.prependScrollback([row('Y')], anchor), 'stale');
+      controller.abort();
+      assert.equal(await first, 'stale');
+      const replacement = terminal.prependScrollback([row('Z')], anchor);
+      release(true);
+      assert.equal(await replacement, 'inserted');
+      assert.deepEqual(contents(), ['Z', 'A', 'B', 'C']);
+    });
+
     it('cancels a page at resize and preserves writes behind a paused parser', async () => {
-      const terminal = new TestTerminal({ cols: 10, rows: 3 });
+      terminal.resize(10, 3);
       await terminal.writeP('first\r\nsecond\r\nthird\r\nfourth');
       const { ybase, y } = terminal.buffer;
       const head = terminal.registerMarker(-ybase - y);

@@ -127,6 +127,8 @@ export interface ISelectionService {
   selectAll(): void;
   selectLines(start: number, end: number): void;
   clearSelection(): void;
+  /** Keep the selection attached to retained rows of a history page edit. */
+  rebaseSelectionForScrollback(start: number, end: number, shift: number): void;
   rightClickSelect(event: MouseEvent): void;
   shouldColumnSelect(event: KeyboardEvent | MouseEvent): boolean;
   shouldForceSelection(event: MouseEvent): boolean;

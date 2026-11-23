@@ -168,7 +168,8 @@ export class CircularList<T> extends Disposable implements ICircularList<T> {
 
   /**
    * Inserts at the front without trimming resident items. Update other buffer
-   * coordinates before notifying insert listeners.
+   * coordinates in beforeNotify so marker listeners see the new viewport.
+   * Returns false without modifying the list if the items would evict any row.
    */
   public prepend(items: ReadonlyArray<T>, beforeNotify: () => void): boolean {
     if (items.length > this._maxLength - this._length) {

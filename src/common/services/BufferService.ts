@@ -27,6 +27,7 @@ export class BufferService extends Disposable implements IBufferService {
   /** Keep the archived prefix separate from the live viewport during a history read. */
   public scrollbackWindowActive = false;
 
+  /** Alternate-screen output always uses its own normal scrolling rules. */
   private get _isReadingScrollback(): boolean {
     return this.scrollbackWindowActive && this.buffer === this.buffers.normal;
   }
@@ -123,8 +124,8 @@ export class BufferService extends Disposable implements IBufferService {
         }
       }
     } else {
-      // scrollTop is non-zero which means no line will be going to the
-      // scrollback, instead we can just shift them in-place.
+      // Keep the archived prefix intact when live output scrolls in a reading
+      // window. A restricted scroll region also shifts its rows in place.
       const scrollRegionHeight = bottomRow - topRow + 1 /* as it's zero-based */;
       buffer.lines.shiftElements(topRow + 1, scrollRegionHeight - 1, -1);
       buffer.lines.set(bottomRow, newLine.clone(true));

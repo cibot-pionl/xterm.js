@@ -18,6 +18,9 @@ export interface IBufferService {
   readonly buffer: IBuffer;
   readonly buffers: IBufferSet;
   isUserScrolling: boolean;
+  /** A detached history window occupies [0, normal.ybase). The live screen follows it. */
+  scrollbackWindowActive: boolean;
+  /** Rows reachable by the scrollbar and Select All in the active buffer. */
   readonly scrollableRows: number;
   onResize: IEvent<IBufferResizeEvent>;
   onScroll: IEvent<number>;

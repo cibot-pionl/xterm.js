@@ -48,7 +48,7 @@ import { CoreTerminal } from '../common/CoreTerminal';
 import * as Browser from '../common/Platform';
 import { ColorRequestType, IColorEvent, ITerminalOptions, KeyboardResultType, SpecialColorIndex } from '../common/Types';
 import { DEFAULT_ATTR_DATA } from '../common/buffer/BufferLine';
-import { IBuffer } from '../common/buffer/Types';
+import { IBuffer, IBufferLine } from '../common/buffer/Types';
 import { createScrollbackLines } from './ScrollbackPage';
 import { C0, C1ESCAPED } from '../common/data/EscapeSequences';
 import { toRgbString } from '../common/input/XParseColor';
@@ -95,7 +95,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
   private _renderService: IRenderService | undefined;
   private _themeService: IThemeService | undefined;
   private _characterJoinerService: ICharacterJoinerService | undefined;
-  private _selectionService: SelectionService | undefined;
+  private _selectionService: ISelectionService | undefined;
 
   /**
    * Records whether the keydown event has already been handled and triggered a data event, if so
@@ -1093,6 +1093,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     super.resize(x, y);
   }
 
+  /** Drop the detached prefix before resize can reflow it into the live screen. */
   private _discardScrollbackWindow(): void {
     if (!this._bufferService.scrollbackWindowActive) {
       return;
@@ -1113,67 +1114,36 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     this._charSizeService?.measure();
   }
 
+  /** The row-zero marker identifies this buffer and follows its text through the insert. */
   public prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult> {
     const { columns, head, signal } = options;
     const buffer = this.buffers.normal;
     const lines = buffer.lines;
-    const isCurrentHead = (): boolean =>
-      buffer === this.buffer && lines === buffer.lines && columns === this.cols &&
-      head.line === 0 && buffer.markers.includes(head);
+    const count = rows.length;
+    const check = (): PrependScrollbackResult | undefined => {
+      if (buffer !== this.buffer || lines !== buffer.lines || columns !== this.cols ||
+          head.line !== 0 || !buffer.markers.includes(head)) {
+        return 'stale';
+      }
+      return count > lines.maxLength - lines.length ? 'capacity' : undefined;
+    };
 
-    if (this._store.isDisposed || this._cancelScrollbackEdit || signal?.aborted || !isCurrentHead()) {
-      return Promise.resolve('stale');
-    }
-    if (!rows.length) {
-      return Promise.resolve('invalid');
-    }
-    if (rows.length > lines.maxLength - lines.length) {
-      return Promise.resolve('capacity');
-    }
-    let page = createScrollbackLines(rows, columns);
-    if (!page) {
-      return Promise.resolve('invalid');
-    }
-
-    return new Promise(resolve => {
-      const finish = (result: PrependScrollbackResult): void => {
-        this._cancelScrollbackEdit = undefined;
-        signal?.removeEventListener('abort', cancel);
-        page = undefined;
-        resolve(result);
-      };
-      const cancel = (): void => finish('stale');
-      this._cancelScrollbackEdit = cancel;
-      signal?.addEventListener('abort', cancel, { once: true });
-
-      this._enqueueAfterWrites(() => {
-        if (!page) {
-          return;
-        }
-        if (!isCurrentHead()) {
-          finish('stale');
-          return;
-        }
-        if (lines.get(0)?.isWrapped) {
-          finish('invalid');
-          return;
-        }
-
-        const amount = page.length;
-        const inserted = lines.prepend(page, () => {
-          this._selectionService?.rebaseSelectionForPrepend(amount);
-          buffer.ybase += amount;
-          buffer.ydisp += amount;
-          buffer.savedY += amount;
-        });
-        finish(inserted ? 'inserted' : 'capacity');
-        if (inserted) {
-          this._syncScrollbackView();
-        }
+    return this._enqueueScrollbackEdit(rows, columns, signal, check, page => {
+      if (lines.get(0)?.isWrapped) {
+        return 'invalid';
+      }
+      const end = lines.length;
+      const inserted = lines.prepend(page, () => {
+        this._selectionService?.rebaseSelectionForScrollback(0, end, count);
+        buffer.ybase += count;
+        buffer.ydisp += count;
+        buffer.savedY += count;
       });
+      return inserted ? 'inserted' : 'capacity';
     });
   }
 
+  /** Restrict scrolling to the archived prefix only when it contains the whole visible viewport. */
   public setScrollbackWindowActive(active: boolean): boolean {
     const service = this._bufferService;
     const buffer = this.buffer;
@@ -1189,71 +1159,107 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     return true;
   }
 
-  public async updateScrollbackWindow(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackWindowUpdate): Promise<PrependScrollbackResult> {
+  /** Move one archive boundary without disturbing the viewport or the live parser. */
+  public updateScrollbackWindow(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackWindowUpdate): Promise<PrependScrollbackResult> {
     const { columns, direction, discard, signal } = options;
-    const buffer = this.buffer;
+    const buffer = this.buffers.normal;
     const epoch = this._scrollbackWindowEpoch;
-    if (this._store.isDisposed || this._cancelScrollbackEdit || signal?.aborted ||
-        !this._bufferService.scrollbackWindowActive || columns !== this.cols) {
-      return 'stale';
+    const check = (): PrependScrollbackResult | undefined => {
+      if (buffer !== this.buffer || !this._bufferService.scrollbackWindowActive ||
+          epoch !== this._scrollbackWindowEpoch || columns !== this.cols) {
+        return 'stale';
+      }
+      return Number.isInteger(discard) && discard >= 0 ? undefined : 'invalid';
+    };
+
+    return this._enqueueScrollbackEdit(rows, columns, signal, check, page => {
+      const older = direction === 'older';
+      const start = older ? 0 : discard;
+      const end = older ? buffer.ybase - discard : buffer.ybase;
+      if (start > buffer.ydisp || end < buffer.ydisp + this.rows) {
+        return 'stale';
+      }
+      if (buffer.lines.get(start)?.isWrapped || buffer.lines.get(end)?.isWrapped) {
+        return 'invalid';
+      }
+      const change = page.length - discard;
+      if (buffer.lines.length + change > buffer.lines.maxLength) {
+        return 'capacity';
+      }
+      const shift = older ? page.length : -discard;
+      // Markers follow the list's delete/insert events. Selection endpoints are
+      // plain coordinates and must be checked against the old retained range.
+      this._selectionService?.rebaseSelectionForScrollback(start, end, shift);
+      buffer.lines.splice(older ? end : 0, discard);
+      buffer.lines.splice(older ? 0 : buffer.ybase - discard, 0, ...page);
+      buffer.ydisp += shift;
+      buffer.ybase += change;
+      buffer.savedY = Math.max(0, buffer.savedY + change);
+      return 'inserted';
+    });
+  }
+
+  /**
+   * Validate and snapshot addon cells before returning control to the caller.
+   * Recheck the anchor at the write-queue boundary because pending input may
+   * have switched buffers or trimmed history. Cancellation releases the page
+   * even when an asynchronous parser handler keeps the queue paused.
+   */
+  private _enqueueScrollbackEdit(
+    rows: ReadonlyArray<IScrollbackRow>, columns: number, signal: AbortSignal | undefined,
+    check: () => PrependScrollbackResult | undefined,
+    apply: (page: IBufferLine[]) => PrependScrollbackResult
+  ): Promise<PrependScrollbackResult> {
+    if (this._store.isDisposed || this._cancelScrollbackEdit || signal?.aborted) {
+      return Promise.resolve('stale');
     }
-    if (!Number.isInteger(discard) || discard < 0 || !rows.length) {
-      return 'invalid';
+    const failure = check();
+    if (failure) {
+      return Promise.resolve(failure);
     }
     let page = createScrollbackLines(rows, columns);
     if (!page) {
-      return 'invalid';
+      return Promise.resolve('invalid');
     }
-    return new Promise<PrependScrollbackResult>(resolve => {
-      const finish = (result: PrependScrollbackResult): void => {
+    return new Promise((resolve, reject) => {
+      const cancel = (): void => {
+        if (!page) {
+          return;
+        }
+        page = undefined;
         this._cancelScrollbackEdit = undefined;
         signal?.removeEventListener('abort', cancel);
-        page = undefined;
-        resolve(result);
+        resolve('stale');
       };
-      const cancel = (): void => finish('stale');
       this._cancelScrollbackEdit = cancel;
       signal?.addEventListener('abort', cancel, { once: true });
       this._enqueueAfterWrites(() => {
         if (!page) {
           return;
         }
-        if (signal?.aborted || epoch !== this._scrollbackWindowEpoch ||
-            !this._bufferService.scrollbackWindowActive ||
-            buffer !== this.buffer || buffer !== this.buffers.normal || columns !== this.cols) {
-          finish('stale');
+        signal?.removeEventListener('abort', cancel);
+        // Marker listeners can call back into the terminal. Once the edit
+        // starts, keep the slot reserved and ignore cancellation until it ends.
+        const ready = page;
+        page = undefined;
+        let result: PrependScrollbackResult;
+        try {
+          result = check() ?? apply(ready);
+        } catch (error) {
+          reject(error);
           return;
+        } finally {
+          this._cancelScrollbackEdit = undefined;
         }
-
-        const older = direction === 'older';
-        const start = older ? 0 : discard;
-        const end = older ? buffer.ybase - discard : buffer.ybase;
-        if (start > buffer.ydisp || end < buffer.ydisp + this.rows) {
-          finish('stale');
-          return;
+        resolve(result);
+        if (result === 'inserted') {
+          this._syncScrollbackView();
         }
-        if (buffer.lines.get(start)?.isWrapped || buffer.lines.get(end)?.isWrapped) {
-          finish('invalid');
-          return;
-        }
-        const change = page.length - discard;
-        if (buffer.lines.length + change > buffer.lines.maxLength) {
-          finish('capacity');
-          return;
-        }
-        const shift = older ? page.length : -discard;
-        this._selectionService?.rebaseSelectionForScrollback(start, end, shift);
-        buffer.lines.splice(older ? end : 0, discard);
-        buffer.lines.splice(older ? 0 : buffer.ybase - discard, 0, ...page);
-        buffer.ydisp += shift;
-        buffer.ybase += change;
-        buffer.savedY = Math.max(0, buffer.savedY + change);
-        this._syncScrollbackView();
-        finish('inserted');
       });
     });
   }
 
+  /** Rebase the scrollbar before scroll listeners or the next wheel event can use it. */
   private _syncScrollbackView(): void {
     this._viewport?.syncScrollPosition();
     this._onScroll.fire({ position: this.buffer.ydisp });

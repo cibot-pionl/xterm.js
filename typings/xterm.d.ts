@@ -582,8 +582,10 @@ declare module '@xterm/xterm' {
     readonly line: number;
   }
 
+  /** An indexed terminal color (0–255) or a packed 24-bit RGB value. */
   export type ScrollbackColor = { readonly kind: 'palette' | 'rgb', readonly value: number };
 
+  /** A printable cell. Core supplies a wide character's trailing cell. */
   export interface IScrollbackCell {
     /** One terminal cell's printable text, or an empty string for a blank. */
     readonly text: string;
@@ -595,12 +597,14 @@ declare module '@xterm/xterm' {
     readonly underline?: boolean;
   }
 
+  /** One physical row at the supplied width. Missing cells are blank. */
   export interface IScrollbackRow {
     readonly cells: ReadonlyArray<IScrollbackCell>;
     /** Whether the row continues the preceding row. */
     readonly isWrapped?: boolean;
   }
 
+  /** Identifies the resident boundary used to fetch this page. */
   export interface IPrependScrollbackOptions {
     readonly columns: number;
     /** A marker at the first resident row of the normal buffer. */
@@ -617,6 +621,13 @@ declare module '@xterm/xterm' {
     readonly signal?: AbortSignal;
   }
 
+  /**
+   * `inserted` commits the whole page. Other outcomes leave its rows unapplied.
+   * `stale` means that the anchor, window or viewport changed, another edit is
+   * pending, or the request was canceled. `capacity` means the page would evict
+   * resident rows. `invalid` means the page, discard count or wrap boundary
+   * is invalid.
+   */
   export type PrependScrollbackResult = 'inserted' | 'stale' | 'capacity' | 'invalid';
 
   /**
@@ -1418,24 +1429,32 @@ declare module '@xterm/xterm' {
     write(data: string | Uint8Array, callback?: () => void): void;
 
     /**
-     * Experimental. Inserts oldest-first render cells ahead of the normal
-     * buffer at the current width. The first page row and the first resident
-     * row must both begin a logical line. The page is applied after queued
-     * writes. If the anchor or geometry changes, or the entire page does not
-     * fit within scrollback, the buffer is left as is.
+     * (EXPERIMENTAL) Insert archived cells before the first normal-buffer row.
+     * The addon must supply oldest-first rows at the current width and a
+     * marker at row zero. Both the page and the resident buffer must start on
+     * logical lines. Core applies the edit after queued writes and moves the
+     * markers, selection, saved cursor and viewport with their text.
+     * Pages allow up to 512 rows, 65,536 cells (including padding), 65,536
+     * UTF-16 code units in total and 64 code units per cell.
      */
     prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult>;
 
     /**
-     * Experimental. The viewport scrolls within an archived prefix while the
-     * live screen parses independently. Enable while the full viewport is
-     * above the live screen. Rejoin at a contiguous boundary.
+     * (EXPERIMENTAL) Detach the normal viewport so live output cannot evict
+     * the archived rows on screen. The entire viewport must be above the live
+     * screen to enable the window. Returns false if the active buffer or
+     * viewport cannot support the change. The addon must supply any missing
+     * history up to the live screen before rejoining at a contiguous boundary.
      */
     setScrollbackWindowActive(active: boolean): boolean;
 
     /**
-     * Experimental. Adds rows at one end of the reading window and discards
-     * rows from the other. Retained rows must contain the current viewport.
+     * (EXPERIMENTAL) Shift a detached window toward older or newer rows.
+     * Supply a page with the same width, order and limits as prependScrollback.
+     * Discard rows at the opposite end on a logical-line boundary. The
+     * retained rows must still cover the viewport when queued input finishes.
+     * Core shifts retained markers and selections and clears a selection that
+     * crosses a discarded row.
      */
     updateScrollbackWindow(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackWindowUpdate): Promise<PrependScrollbackResult>;
 

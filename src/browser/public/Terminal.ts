@@ -5,7 +5,7 @@
 
 import * as Strings from '../LocalizableStrings';
 import { CoreBrowserTerminal as TerminalCore } from '../CoreBrowserTerminal';
-import { IBufferRange } from '../Types';
+import { IBufferRange, ITerminal } from '../Types';
 import { Disposable } from '../../common/Lifecycle';
 import { ITerminalOptions } from '../../common/Types';
 import { AddonManager } from '../../common/public/AddonManager';
@@ -23,7 +23,7 @@ const CONSTRUCTOR_ONLY_OPTIONS = ['cols', 'rows'];
 let $value = 0;
 
 export class Terminal extends Disposable implements ITerminalApi {
-  private _core: TerminalCore;
+  private _core: ITerminal;
   private _addonManager: AddonManager;
   private _parser: IParser | undefined;
   private _buffer: BufferNamespaceApi | undefined;

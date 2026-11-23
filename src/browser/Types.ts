@@ -13,7 +13,7 @@ import type { IEvent } from '../common/Event';
 /**
  * A portion of the public API that are implemented identially internally and simply passed through.
  */
-type InternalPassthroughApis = Omit<ITerminalApi, 'buffer' | 'parser' | 'unicode' | 'modes' | 'writeln' | 'loadAddon' | 'prependScrollback' | 'setScrollbackWindowActive' | 'updateScrollbackWindow'>;
+type InternalPassthroughApis = Omit<ITerminalApi, 'buffer' | 'parser' | 'unicode' | 'modes' | 'writeln' | 'loadAddon'>;
 
 export interface ITerminal extends InternalPassthroughApis, ICoreTerminal {
   screenElement: HTMLElement | undefined;

@@ -15,6 +15,7 @@ const MAX_CELL_TEXT_LENGTH = 64;
 // oxlint-disable-next-line no-control-regex
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/;
 
+/** Translate public palette/RGB colors into xterm cell flags, rejecting out-of-range values. */
 function encodeColor(color: ScrollbackColor | undefined): number | undefined {
   if (color === undefined) {
     return 0;
@@ -30,9 +31,13 @@ function encodeColor(color: ScrollbackColor | undefined): number | undefined {
   }
 }
 
-/** Converts a bounded page to native lines without parsing any terminal input. */
+/**
+ * Materialize an oldest-first page at its recorded width before queuing it.
+ * Addons supply printable cells. Only core constructs native wide-cell trailers
+ * and color flags. Reject the entire page if any row exceeds the bounds.
+ */
 export function createScrollbackLines(rows: ReadonlyArray<IScrollbackRow>, columns: number): BufferLine[] | undefined {
-  if (rows[0].isWrapped || rows.length > MAX_PAGE_ROWS || rows.length * columns > MAX_PAGE_CELLS) {
+  if (!rows.length || rows[0].isWrapped || rows.length > MAX_PAGE_ROWS || rows.length * columns > MAX_PAGE_CELLS) {
     return undefined;
   }
 

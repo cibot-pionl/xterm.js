@@ -32,6 +32,9 @@ export class TestTerminal extends CoreBrowserTerminal {
 }
 
 export class MockTerminal implements ITerminal {
+  public prependScrollback!: ITerminal['prependScrollback'];
+  public setScrollbackWindowActive!: ITerminal['setScrollbackWindowActive'];
+  public updateScrollbackWindow!: ITerminal['updateScrollbackWindow'];
   public onBlur!: IEvent<void>;
   public onFocus!: IEvent<void>;
   public onA11yChar!: IEvent<string>;
@@ -473,6 +476,7 @@ export class MockCharacterJoinerService implements ICharacterJoinerService {
 }
 
 export class MockSelectionService implements ISelectionService {
+  public rebaseSelectionForScrollback!: ISelectionService['rebaseSelectionForScrollback'];
   public serviceBrand: undefined;
   public selectionText: string = '';
   public hasSelection: boolean = false;

@@ -377,6 +377,27 @@ describe('SelectionService', () => {
     });
   });
 
+  describe('rebaseSelectionForScrollback', () => {
+    it('moves a reversed selection with retained rows', () => {
+      selectionService.model.selectionStart = [2, 4];
+      selectionService.model.selectionEnd = [1, 2];
+      selectionService.rebaseSelectionForScrollback(1, 5, -1);
+      assert.deepEqual(selectionService.model.selectionStart, [2, 3]);
+      assert.deepEqual(selectionService.model.selectionEnd, [1, 1]);
+    });
+
+    it('keeps Select All on the old archive rows when prepending a page', () => {
+      bufferService.scrollbackWindowActive = true;
+      buffer.ybase = 5;
+      selectionService.selectAll();
+      assert.deepEqual(selectionService.selectionEnd, [bufferService.cols, 4]);
+      selectionService.rebaseSelectionForScrollback(0, 5, 2);
+      assert.isFalse(selectionService.model.isSelectAllActive);
+      assert.deepEqual(selectionService.selectionStart, [0, 2]);
+      assert.deepEqual(selectionService.selectionEnd, [bufferService.cols, 6]);
+    });
+  });
+
   describe('selectLines', () => {
     it('should select a single line', () => {
       buffer.lines.length = 3;
