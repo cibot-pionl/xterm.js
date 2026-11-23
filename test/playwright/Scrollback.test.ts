@@ -17,20 +17,20 @@ test('a page edit rebases the next scroll and keeps the selection attached to it
       term.scrollToTop();
       term.select(0, 1, 1);
       const head = term.registerMarker(-buffer.baseY - buffer.cursorY)!;
-      const inserted = await term.prependScrollback([{ cells: [{ text: 'P', width: 1 }] }], { columns: term.cols, head });
+      const inserted = await term.editScrollback([{ cells: [{ text: 'P', width: 1 }] }], { columns: term.cols, direction: 'older', head });
 
       // A second scroll must start at the rebased position even before the next animation frame.
       term.scrollLines(1);
       const afterScroll = buffer.viewportY;
       const active = term.setScrollbackWindowActive(true);
-      const updated = await term.updateScrollbackWindow([{ cells: [{ text: 'Q', width: 1 }] }], {
+      const updated = await term.editScrollback([{ cells: [{ text: 'Q', width: 1 }] }], {
         columns: term.cols, direction: 'newer', discard: 1
       });
       term.scrollLines(1);
       const retained = { viewport: buffer.viewportY, text: term.getSelection(), range: term.getSelectionPosition(), head: head.line };
 
       term.select(0, 0, 1);
-      const discarded = await term.updateScrollbackWindow([{ cells: [{ text: 'R', width: 1 }] }], {
+      const discarded = await term.editScrollback([{ cells: [{ text: 'R', width: 1 }] }], {
         columns: term.cols, direction: 'newer', discard: 1
       });
       return { inserted, afterScroll, active, updated, retained, discarded, hasSelection: term.hasSelection(), headDisposed: head.isDisposed };

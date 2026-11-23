@@ -22,3 +22,15 @@ The provider simulates a 180 ms delay and generates rows by ID. This shows
 the limits and viewport behavior without requiring a separate terminal service.
 
 [Example source](client/scrollback.ts)
+
+## API and addon responsibilities
+
+`editScrollback` imports typed rows at a parser boundary. Editing either edge
+can move native buffer coordinates, selections, and markers together without
+sending history back through the live parser. `setScrollbackWindowActive` keeps
+output from trimming visible history while the reader is away from live.
+`normalScrollbackRowsAdded` lets a provider track actual output progress even
+when the buffer is full or detached.
+
+The example owns page IDs, fetch timing, cancellation, and which rows to drop.
+It fills the gap before rejoining the live screen.

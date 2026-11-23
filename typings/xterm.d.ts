@@ -604,20 +604,17 @@ declare module '@xterm/xterm' {
     readonly isWrapped?: boolean;
   }
 
-  /** Identifies the resident boundary used to fetch this page. */
-  export interface IPrependScrollbackOptions {
+  /** Options for an atomic edit of normal scrollback. */
+  export interface IScrollbackEditOptions {
     readonly columns: number;
-    /** A marker at the first resident row of the normal buffer. */
-    readonly head: IMarker;
-    readonly signal?: AbortSignal;
-  }
-
-  /** Options for shifting a detached normal-buffer reading window. */
-  export interface IScrollbackWindowUpdate {
-    readonly columns: number;
+    /** Insert at the older or newer edge of the resident history. */
     readonly direction: 'older' | 'newer';
-    /** Drops rows from the opposite end of the window. */
-    readonly discard: number;
+    /** Rows to drop from the opposite edge when detached. Defaults to zero. */
+    readonly discard?: number;
+    /**
+     * Marker at the first resident row. Required for connected history.
+     */
+    readonly head?: IMarker;
     readonly signal?: AbortSignal;
   }
 
@@ -628,7 +625,7 @@ declare module '@xterm/xterm' {
    * resident rows. `invalid` means the page, discard count or wrap boundary
    * is invalid.
    */
-  export type PrependScrollbackResult = 'inserted' | 'stale' | 'capacity' | 'invalid';
+  export type ScrollbackEditResult = 'inserted' | 'stale' | 'capacity' | 'invalid';
 
   /**
    * Represents a disposable that tracks is disposed state.
@@ -1429,42 +1426,31 @@ declare module '@xterm/xterm' {
     write(data: string | Uint8Array, callback?: () => void): void;
 
     /**
-     * (EXPERIMENTAL) Number of rows that output has scrolled off the top of
-     * the normal screen since this terminal was created. Includes soft wraps
-     * and scrolling while the archive window is detached or scrollback is full.
-     * Read this in the write callback to measure the change for that write.
+     * (EXPERIMENTAL) Rows admitted to normal scrollback since creation.
+     * Counts soft wraps, rows that replace older history at capacity, and
+     * rows that would have been admitted while the window was detached.
+     * Read it in the write callback to measure the change for that write.
      */
     readonly normalScrollbackRowsAdded: number;
 
     /**
-     * (EXPERIMENTAL) Insert archived cells before the first normal-buffer row.
-     * The addon must supply oldest-first rows at the current width and a
-     * marker at row zero. Both the page and the resident buffer must start on
-     * logical lines. Core applies the edit after queued writes and moves the
-     * markers, selection, saved cursor and viewport with their text.
-     * Pages allow up to 512 rows, 65,536 cells (including padding), 65,536
-     * UTF-16 code units in total and 64 code units per cell.
+     * (EXPERIMENTAL) Import oldest-first rows at the current width. Prepend to
+     * connected history with a marker at row zero and no discarded rows. In a
+     * detached window, edit either edge and optionally discard from the other.
+     * The page and retained archive must start on logical line boundaries.
+     * Each edit is limited to 65,536 grid cells and 65,536 UTF-16 code units.
+     * Core applies the edit after queued writes and preserves the live parser,
+     * markers, selection, saved cursor and viewport for retained rows.
      */
-    prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult>;
+    editScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackEditOptions): Promise<ScrollbackEditResult>;
 
     /**
-     * (EXPERIMENTAL) Detach the normal viewport so live output cannot evict
-     * the archived rows on screen. The entire viewport must be above the live
-     * screen to enable the window. Returns false if the active buffer or
-     * viewport cannot support the change. The addon must supply any missing
-     * history up to the live screen before rejoining at a contiguous boundary.
+     * (EXPERIMENTAL) Restrict the normal viewport to archived rows while live
+     * output continues. The viewport must fit entirely in history to detach.
+     * Returns false if the active buffer or viewport cannot support the change.
+     * Fill any gap to the live screen before rejoining.
      */
     setScrollbackWindowActive(active: boolean): boolean;
-
-    /**
-     * (EXPERIMENTAL) Shift a detached window toward older or newer rows.
-     * Supply a page with the same width, order and limits as prependScrollback.
-     * Discard rows at the opposite end on a logical-line boundary. The
-     * retained rows must still cover the viewport when queued input finishes.
-     * Core shifts retained markers and selections and clears a selection that
-     * crosses a discarded row.
-     */
-    updateScrollbackWindow(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackWindowUpdate): Promise<PrependScrollbackResult>;
 
     /**
      * Writes data to the terminal, followed by a break line character (\n).

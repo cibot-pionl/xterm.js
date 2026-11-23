@@ -33,9 +33,8 @@ export class TestTerminal extends CoreBrowserTerminal {
 
 export class MockTerminal implements ITerminal {
   public normalScrollbackRowsAdded = 0;
-  public prependScrollback!: ITerminal['prependScrollback'];
+  public editScrollback!: ITerminal['editScrollback'];
   public setScrollbackWindowActive!: ITerminal['setScrollbackWindowActive'];
-  public updateScrollbackWindow!: ITerminal['updateScrollbackWindow'];
   public onBlur!: IEvent<void>;
   public onFocus!: IEvent<void>;
   public onA11yChar!: IEvent<string>;
@@ -224,6 +223,7 @@ export class MockTerminal implements ITerminal {
 }
 
 export class MockBuffer implements IBuffer {
+  public editLines(edit: () => void): void { edit(); }
   public markers!: IMarker[];
   public addMarker(y: number): IMarker {
     throw new Error('Method not implemented.');

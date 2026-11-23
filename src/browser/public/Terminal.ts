@@ -12,7 +12,7 @@ import { AddonManager } from '../../common/public/AddonManager';
 import { BufferNamespaceApi } from '../../common/public/BufferNamespaceApi';
 import { ParserApi } from '../../common/public/ParserApi';
 import { UnicodeApi } from '../../common/public/UnicodeApi';
-import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling, IPrependScrollbackOptions, IScrollbackRow, IScrollbackWindowUpdate, PrependScrollbackResult } from '@xterm/xterm';
+import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling, IScrollbackEditOptions, IScrollbackRow, ScrollbackEditResult } from '@xterm/xterm';
 import type { IEvent } from '../../common/Event';
 
 /**
@@ -228,17 +228,13 @@ export class Terminal extends Disposable implements ITerminalApi {
     this._checkProposedApi();
     return this._core.normalScrollbackRowsAdded;
   }
-  public prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult> {
+  public editScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackEditOptions): Promise<ScrollbackEditResult> {
     this._checkProposedApi();
-    return this._core.prependScrollback(rows, options);
+    return this._core.editScrollback(rows, options);
   }
   public setScrollbackWindowActive(active: boolean): boolean {
     this._checkProposedApi();
     return this._core.setScrollbackWindowActive(active);
-  }
-  public updateScrollbackWindow(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackWindowUpdate): Promise<PrependScrollbackResult> {
-    this._checkProposedApi();
-    return this._core.updateScrollbackWindow(rows, options);
   }
   public writeln(data: string | Uint8Array, callback?: () => void): void {
     this._core.write(data);

@@ -9,9 +9,7 @@ import { CellData } from '../common/buffer/CellData';
 import { Attributes, BgFlags, FgFlags } from '../common/buffer/Constants';
 import type { CharData } from '../common/buffer/Types';
 
-const MAX_PAGE_ROWS = 512;
 const MAX_PAGE_CELLS = 65_536;
-const MAX_CELL_TEXT_LENGTH = 64;
 // oxlint-disable-next-line no-control-regex
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/;
 
@@ -37,7 +35,7 @@ function encodeColor(color: ScrollbackColor | undefined): number | undefined {
  * and color flags. Reject the entire page if any row exceeds the bounds.
  */
 export function createScrollbackLines(rows: ReadonlyArray<IScrollbackRow>, columns: number): BufferLine[] | undefined {
-  if (!rows.length || rows[0].isWrapped || rows.length > MAX_PAGE_ROWS || rows.length * columns > MAX_PAGE_CELLS) {
+  if (!rows.length || rows[0].isWrapped || rows.length * columns > MAX_PAGE_CELLS) {
     return undefined;
   }
 
@@ -52,15 +50,11 @@ export function createScrollbackLines(rows: ReadonlyArray<IScrollbackRow>, colum
     const line = new BufferLine(columns, undefined, row.isWrapped);
     let column = 0;
     for (const { text, width, foreground, background, bold, italic, underline } of row.cells) {
-      if ((width !== 1 && width !== 2) || column + width > columns ||
-          typeof text !== 'string' || text.length > MAX_CELL_TEXT_LENGTH || CONTROL_CHARACTER.test(text) ||
-          (width === 2 && !text)) {
+      if ((width !== 1 && width !== 2) || column + width > columns || typeof text !== 'string' ||
+          text.length > MAX_PAGE_CELLS - textLength || CONTROL_CHARACTER.test(text) || (width === 2 && !text)) {
         return undefined;
       }
       textLength += text.length;
-      if (textLength > MAX_PAGE_CELLS) {
-        return undefined;
-      }
 
       const fg = encodeColor(foreground);
       const bg = encodeColor(background);

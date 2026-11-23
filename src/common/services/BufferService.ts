@@ -129,9 +129,14 @@ export class BufferService extends Disposable implements IBufferService {
           buffer.ydisp = Math.max(buffer.ydisp - 1, 0);
         }
       }
+    } else if (buffer.scrollTop === 0 && buffer.markers.length) {
+      // Move live markers with their rows without touching the detached prefix.
+      buffer.editLines(() => {
+        buffer.lines.splice(topRow, 1);
+        buffer.lines.splice(bottomRow, 0, newLine.clone(true));
+      });
     } else {
-      // Keep the archived prefix intact when live output scrolls in a reading
-      // window. A restricted scroll region also shifts its rows in place.
+      // Shift a restricted scroll region or an unmarked detached screen in place.
       const scrollRegionHeight = bottomRow - topRow + 1 /* as it's zero-based */;
       buffer.lines.shiftElements(topRow + 1, scrollRegionHeight - 1, -1);
       buffer.lines.set(bottomRow, newLine.clone(true));

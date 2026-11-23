@@ -49,6 +49,7 @@ export class Buffer extends Disposable implements IBuffer {
   private _cols: number;
   private _rows: number;
   private _isClearing: boolean = false;
+  private _removedMarkers: Set<Marker> | undefined;
   private _memoryCleanupQueue: InstanceType<typeof IdleTaskQueue>;
   private _memoryCleanupPosition = 0;
 
@@ -639,6 +640,20 @@ export class Buffer extends Disposable implements IBuffer {
     this._isClearing = false;
   }
 
+  /** Keep marker callbacks outside a compound edit of rows and their coordinates. */
+  public editLines(edit: () => void): void {
+    const removed = new Set<Marker>();
+    this._removedMarkers = removed;
+    try {
+      edit();
+    } finally {
+      this._removedMarkers = undefined;
+      for (const marker of removed) {
+        marker.dispose();
+      }
+    }
+  }
+
   public addMarker(y: number): Marker {
     const marker = new Marker(y);
     this.markers.push(marker);
@@ -650,14 +665,22 @@ export class Buffer extends Disposable implements IBuffer {
       }
     }));
     marker.register(this.lines.onInsert(event => {
-      if (marker.line >= event.index) {
+      if (!this._removedMarkers?.has(marker) && marker.line >= event.index) {
         marker.line += event.amount;
       }
     }));
     marker.register(this.lines.onDelete(event => {
-      // Delete the marker if it's within the range
+      if (this._removedMarkers?.has(marker)) {
+        return;
+      }
+      // Dispose after the edit so listeners see the final buffer and surviving markers.
       if (marker.line >= event.index && marker.line < event.index + event.amount) {
-        marker.dispose();
+        if (this._removedMarkers) {
+          this._removedMarkers.add(marker);
+        } else {
+          marker.dispose();
+        }
+        return;
       }
 
       // Shift the marker if it's after the deleted range

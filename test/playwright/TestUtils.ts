@@ -115,8 +115,8 @@ interface ITerminalProxyCustomMethods {
 
 type TerminalProxyAsyncPropOverrides = 'cols' | 'rows' | 'modes' | 'normalScrollbackRowsAdded';
 type TerminalProxyAsyncMethodOverrides = 'hasSelection' | 'getSelection' | 'getSelectionPosition' | 'registerMarker' | 'registerDecoration';
-// Call prependScrollback in the browser where the marker and abort signal live.
-type TerminalProxyCustomOverrides = 'buffer' | 'dimensions' | 'prependScrollback' | 'setScrollbackWindowActive' | 'updateScrollbackWindow' | (
+// Call editScrollback in the browser where the marker and abort signal live.
+type TerminalProxyCustomOverrides = 'buffer' | 'dimensions' | 'editScrollback' | 'setScrollbackWindowActive' | (
   // The below are not implemented yet
   'element' |
   'screenElement' |

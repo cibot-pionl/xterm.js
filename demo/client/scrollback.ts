@@ -125,11 +125,8 @@ async function requestPage(direction: Direction): Promise<void> {
 
     // A full reading window discards rows from the opposite edge. Core checks
     // that the visible rows still fit in the retained range after pending writes.
-    const discard = Math.max(0, buffer.baseY + rows.length - Demo.SCROLLBACK);
-    const options = { columns, signal: lifetime.signal };
-    const result = head
-      ? await terminal.prependScrollback(rows, { ...options, head })
-      : await terminal.updateScrollbackWindow(rows, { ...options, direction, discard });
+    const discard = detached ? Math.max(0, buffer.baseY + rows.length - Demo.SCROLLBACK) : 0;
+    const result = await terminal.editScrollback(rows, { columns, direction, discard, head, signal: lifetime.signal });
     if (result === 'inserted' && detached) {
       firstArchivedRow = older ? pageStart : first + discard;
       if (!older && end + count === liveStart()) {

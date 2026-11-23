@@ -1218,9 +1218,8 @@ describe('Terminal', () => {
       const marker = head();
       try {
         assert.throws(() => api.normalScrollbackRowsAdded, /allowProposedApi/);
-        assert.throws(() => api.prependScrollback([], { columns: 10, head: marker }), /allowProposedApi/);
+        assert.throws(() => api.editScrollback([], { columns: 10, direction: 'older', head: marker }), /allowProposedApi/);
         assert.throws(() => api.setScrollbackWindowActive(true), /allowProposedApi/);
-        assert.throws(() => api.updateScrollbackWindow([], { columns: 10, direction: 'older', discard: 0 }), /allowProposedApi/);
       } finally {
         api.dispose();
       }
@@ -1256,7 +1255,7 @@ describe('Terminal', () => {
       await terminal.writeP('A\r\nB\x1b7\r\nC');
       core.scrollToTop();
       const marker = head();
-      assert.equal(await core.prependScrollback([{ cells: [{ text: '文', width: 2 }] }], { columns: 10, head: marker }), 'inserted');
+      assert.equal(await core.editScrollback([{ cells: [{ text: '文', width: 2 }] }], { columns: 10, direction: 'older', head: marker }), 'inserted');
       assert.deepEqual(contents(), ['文', 'A', 'B', 'C']);
       assert.equal(terminal.buffer.lines.get(0)!.getWidth(1), 0);
       assert.deepEqual([marker.line, core.buffer.ydisp, core.buffer.ybase], [1, 1, 2]);
@@ -1266,11 +1265,11 @@ describe('Terminal', () => {
 
     it('leaves rows unchanged on stale anchors, invalid pages and insufficient capacity', async () => {
       await terminal.writeP('A\r\nB\r\nC');
-      const anchor = { columns: 10, head: head() };
-      assert.equal(await terminal.prependScrollback([row('X')], { ...anchor, columns: 9 }), 'stale');
-      assert.equal(await terminal.prependScrollback([], anchor), 'invalid');
-      assert.equal(await terminal.prependScrollback([row('A'), row('\x1b')], anchor), 'invalid');
-      assert.equal(await terminal.prependScrollback(Array(6).fill(row('X')), anchor), 'capacity');
+      const anchor = { columns: 10, direction: 'older', head: head() } as const;
+      assert.equal(await terminal.editScrollback([row('X')], { ...anchor, columns: 9 }), 'stale');
+      assert.equal(await terminal.editScrollback([], anchor), 'invalid');
+      assert.equal(await terminal.editScrollback([row('A'), row('\x1b')], anchor), 'invalid');
+      assert.equal(await terminal.editScrollback(Array(6).fill(row('X')), anchor), 'capacity');
       assert.deepEqual(contents(), ['A', 'B', 'C']);
       assert.equal(anchor.head.line, 0);
     });
@@ -1283,7 +1282,7 @@ describe('Terminal', () => {
       const marker = head();
       const removed = terminal.registerMarker(-2);
       const options = { columns: 10, direction: 'older', discard: 1 } as const;
-      assert.equal(await terminal.updateScrollbackWindow([row('0')], options), 'inserted');
+      assert.equal(await terminal.editScrollback([row('0')], options), 'inserted');
       assert.deepEqual(contents(), ['0', 'A', 'B', 'C', 'E', 'F']);
       assert.isTrue(removed.isDisposed);
       assert.equal(marker.line, 1);
@@ -1297,7 +1296,7 @@ describe('Terminal', () => {
       assert.deepEqual(contents(), ['0', 'A', 'B', 'C', 'G', 'H']);
       assert.equal(terminal.buffer.ydisp, 2);
 
-      assert.equal(await terminal.updateScrollbackWindow([row('D')], { ...options, direction: 'newer' }), 'inserted');
+      assert.equal(await terminal.editScrollback([row('D')], { ...options, direction: 'newer' }), 'inserted');
       assert.deepEqual(contents(), ['A', 'B', 'C', 'D', 'G', 'H']);
       assert.equal(terminal.buffer.ydisp, 1);
       assert.equal(marker.line, 0);
@@ -1308,6 +1307,63 @@ describe('Terminal', () => {
       assert.deepEqual(contents(), ['A', 'B', 'C', 'D', 'G', 'H', 'I']);
     });
 
+    it('publishes the complete edit before discarded marker callbacks can clear the terminal', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD\r\nE\r\nF');
+      terminal.scrollToTop();
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+
+      const retained = head();
+      const removed = terminal.registerMarker(-2);
+      let state: { lines: string[], base: number, viewport: number, retained: number } | undefined;
+      removed.onDispose(() => {
+        state = { lines: contents(), base: terminal.buffer.ybase, viewport: terminal.buffer.ydisp, retained: retained.line };
+        terminal.clear();
+      });
+      const options = { columns: 10, direction: 'older', discard: 1 } as const;
+      assert.equal(await terminal.editScrollback([row('0'), row('1')], options), 'inserted');
+      assert.deepEqual(state, { lines: ['0', '1', 'A', 'B', 'C', 'E', 'F'], base: 5, viewport: 2, retained: 2 });
+      assert.deepEqual(contents(), ['F', '']);
+      assert.equal(terminal.buffer.ybase, 0);
+    });
+
+    it('accepts newer archive pages with a wrapped live row beyond the archive', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD\r\nE\r\nF');
+      terminal.scrollToLine(1);
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+      await terminal.writeP('\r\n0123456789abcdefghijK');
+      assert.isTrue(terminal.buffer.lines.get(terminal.buffer.ybase)!.isWrapped);
+
+      const options = { columns: 10, direction: 'newer', discard: 1 } as const;
+      assert.equal(await terminal.editScrollback([row('E')], options), 'inserted');
+      assert.deepEqual(contents(), ['B', 'C', 'D', 'E', 'abcdefghij', 'K']);
+      assert.equal(terminal.buffer.ydisp, 0);
+    });
+
+    it('follows live markers while output scrolls under a detached archive', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD\r\nE\r\nF');
+      terminal.scrollToTop();
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+      const archive = head();
+      const removed = terminal.registerMarker(-1);
+      const live = terminal.registerMarker(0);
+      await terminal.writeP('\r\nG');
+      assert.isTrue(removed.isDisposed);
+      assert.equal(live.line, 4);
+      assert.equal(archive.line, 0);
+      assert.deepEqual(contents(), ['A', 'B', 'C', 'D', 'F', 'G']);
+    });
+
+    it('keeps a normal history window detached when clearing the alternate screen', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD');
+      terminal.scrollToTop();
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+      await terminal.writeP('\x1b[?1049hX');
+      terminal.clear();
+      await terminal.writeP('\x1b[?1049l\x1b[2;1H\r\nE');
+      assert.deepEqual(contents(), ['A', 'B', 'D', 'E']);
+      assert.equal(terminal.buffer.ydisp, 0);
+    });
+
     it('keeps alternate-screen writes separate and drops the archive before normal-buffer reflow', async () => {
       await terminal.writeP('A\r\nB\r\nC\r\nD');
       terminal.scrollToTop();
@@ -1315,7 +1371,7 @@ describe('Terminal', () => {
       const marker = head();
       await terminal.writeP('\x1b[?1049hX\r\nY\r\nZ');
       const options = { columns: 10, direction: 'older', discard: 0 } as const;
-      assert.equal(await terminal.updateScrollbackWindow([row('0')], options), 'stale');
+      assert.equal(await terminal.editScrollback([row('0')], options), 'stale');
       assert.deepEqual(contents(), ['Y', 'Z']);
       await terminal.writeP('\x1b[?1049l');
       assert.deepEqual(contents(), ['A', 'B', 'C', 'D']);
@@ -1332,15 +1388,15 @@ describe('Terminal', () => {
       terminal.scrollToTop();
       assert.isTrue(terminal.setScrollbackWindowActive(true));
       const options = { columns: 10, direction: 'newer', discard: 1 } as const;
-      assert.equal(await terminal.updateScrollbackWindow([row('X')], options), 'stale');
+      assert.equal(await terminal.editScrollback([row('X')], options), 'stale');
       terminal.scrollToLine(1);
       assert.isTrue(terminal.buffer.lines.get(1)!.isWrapped);
-      assert.equal(await terminal.updateScrollbackWindow([row('X')], options), 'invalid');
+      assert.equal(await terminal.editScrollback([row('X')], options), 'invalid');
       assert.deepEqual(contents(), ['0123456789', 'B', 'C', 'D', 'E', 'F']);
       assert.equal(terminal.buffer.ydisp, 1);
     });
 
-    it('resolves an aborted page while the parser is paused and admits the next page', async () => {
+    it('releases an aborted page while reserving its queue slot until the parser resumes', async () => {
       await terminal.writeP('A\r\nB\r\nC');
       let release!: (handled: boolean) => void;
       let started!: () => void;
@@ -1349,14 +1405,16 @@ describe('Terminal', () => {
       terminal.write('\x1b]1337;pause\x07');
       await ready;
       const controller = new AbortController();
-      const anchor = { columns: 10, head: head() };
-      const first = terminal.prependScrollback([row('X')], { ...anchor, signal: controller.signal });
-      assert.equal(await terminal.prependScrollback([row('Y')], anchor), 'stale');
+      const anchor = { columns: 10, direction: 'older', head: head() } as const;
+      const first = terminal.editScrollback([row('X')], { ...anchor, signal: controller.signal });
+      assert.equal(await terminal.editScrollback([row('Y')], anchor), 'stale');
       controller.abort();
       assert.equal(await first, 'stale');
-      const replacement = terminal.prependScrollback([row('Z')], anchor);
+      assert.equal(await terminal.editScrollback([row('Y')], anchor), 'stale');
+      const continuation = terminal.writeP('');
       release(true);
-      assert.equal(await replacement, 'inserted');
+      await continuation;
+      assert.equal(await terminal.editScrollback([row('Z')], anchor), 'inserted');
       assert.deepEqual(contents(), ['Z', 'A', 'B', 'C']);
     });
 
@@ -1368,7 +1426,7 @@ describe('Terminal', () => {
       let releaseHandler!: (value: boolean) => void;
       terminal.registerOscHandler(1337, () => new Promise<boolean>(resolve => { releaseHandler = resolve; }));
       terminal.write('\x1b]1337;pause\x07');
-      const page = terminal.prependScrollback([{ cells: [{ text: 'P', width: 1 }] }], { columns: 10, head });
+      const page = terminal.editScrollback([{ cells: [{ text: 'P', width: 1 }] }], { columns: 10, direction: 'older', head });
       const tail = terminal.writeP('!');
       terminal.resize(9, 3);
 

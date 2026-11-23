@@ -184,6 +184,7 @@ export interface IBuffer {
   getBlankLine(attr: IAttributeData, isWrapped?: boolean): IBufferLine;
   getNullCell(attr?: IAttributeData): ICellData;
   getWhitespaceCell(attr?: IAttributeData): ICellData;
+  editLines(edit: () => void): void;
   addMarker(y: number): IMarker;
   clearMarkers(y: number): void;
   clearAllMarkers(): void;

@@ -274,13 +274,18 @@ export class SelectionService extends Disposable implements ISelectionService {
   /**
    * Keep both endpoints on their original text. Pass the old retained range
    * [start, end) before moving its rows. Select All must keep its old extent.
+   * If cleared, publish the selection change after the edit commits.
    */
-  public rebaseSelectionForScrollback(start: number, end: number, amount: number): void {
+  public rebaseSelectionForScrollback(start: number, end: number, amount: number): (() => void) | undefined {
     const selectionStart = this._model.finalSelectionStart;
     const selectionEnd = this._model.finalSelectionEnd;
     if (selectionStart && selectionEnd && (selectionStart[1] < start || selectionEnd[1] >= end)) {
-      this.clearSelection();
-      return;
+      this._model.clearSelection();
+      this._removeMouseDownListeners();
+      return () => {
+        this.refresh();
+        this._onSelectionChange.fire();
+      };
     }
     if (this._model.isSelectAllActive) {
       this._model.selectionStart = this._model.finalSelectionStart;
@@ -294,6 +299,7 @@ export class SelectionService extends Disposable implements ISelectionService {
     if (focus) {
       this._model.selectionEnd = [focus[0], focus[1] + amount];
     }
+    return undefined;
   }
 
   /**

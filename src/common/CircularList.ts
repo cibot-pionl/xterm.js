@@ -33,7 +33,7 @@ export interface ICircularList<T> {
   push(value: T): void;
   recycle(): T;
   pop(): T | undefined;
-  prepend(items: ReadonlyArray<T>, beforeNotify: () => void): boolean;
+  prepend(items: ReadonlyArray<T>): boolean;
   splice(start: number, deleteCount: number, ...items: T[]): void;
   trimStart(count: number): void;
   shiftElements(start: number, count: number, offset: number): void;
@@ -167,11 +167,10 @@ export class CircularList<T> extends Disposable implements ICircularList<T> {
   }
 
   /**
-   * Inserts at the front without trimming resident items. Update other buffer
-   * coordinates in beforeNotify so marker listeners see the new viewport.
+   * Inserts at the front without shifting or trimming resident items.
    * Returns false without modifying the list if the items would evict any row.
    */
-  public prepend(items: ReadonlyArray<T>, beforeNotify: () => void): boolean {
+  public prepend(items: ReadonlyArray<T>): boolean {
     if (items.length > this._maxLength - this._length) {
       return false;
     }
@@ -183,7 +182,6 @@ export class CircularList<T> extends Disposable implements ICircularList<T> {
       this._array[this._getCyclicIndex(i)] = items[i];
     }
     this._length += items.length;
-    beforeNotify();
     this.onInsertEmitter.fire({ index: 0, amount: items.length });
     return true;
   }
