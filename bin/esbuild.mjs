@@ -128,8 +128,11 @@ if (config.addon) {
   bundleConfig = {
     ...bundleConfig,
     sourcemap: false,
-    entryPoints: [`demo/client/client.ts`],
-    outfile: 'demo/dist/client-bundle.js',
+    entryPoints: {
+      'client-bundle': 'demo/client/client.ts',
+      'scrollback-bundle': 'demo/client/scrollback.ts',
+    },
+    outdir: 'demo/dist',
     external: ['util', 'os', 'fs', 'path', 'stream', 'Terminal'],
     alias: {
       // Library ESM imports

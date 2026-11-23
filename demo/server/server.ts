@@ -37,6 +37,10 @@ function startServer(): void {
     res.sendFile(demoRoot + '/index.html');
   });
 
+  app.get('/scrollback', (req, res) => {
+    res.sendFile(demoRoot + '/scrollback.html');
+  });
+
   app.get('/test', (req, res) => {
     res.sendFile(demoRoot + '/test.html');
   });

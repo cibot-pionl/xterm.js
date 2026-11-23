@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Scrollback paging · xterm.js demo</title>
+    <link rel="stylesheet" href="/xterm.css">
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #1e1e1e;
+        color: #f8f8f8;
+        font-family: system-ui, sans-serif;
+      }
+      main {
+        max-width: 55rem;
+        margin: 2rem auto;
+        padding-inline: 1rem;
+      }
+      h1 { font-size: 1.5rem; }
+      a { color: #8ac8ef; }
+      #terminal {
+        margin-block: 1rem;
+        padding: .75rem;
+        background: #161716;
+        overflow-x: auto;
+      }
+      #terminal .xterm { width: max-content; }
+      #buffer, #status {
+        font-size: .875rem;
+        font-variant-numeric: tabular-nums;
+      }
+      #status { min-height: 1.5em; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/">xterm.js demo</a>
+      <h1>Scrollback paging</h1>
+      <p>Scroll up to fetch earlier rows. Scroll down to fetch them again on the way back to live output.</p>
+      <label><input id="live" type="checkbox" disabled> Generate live output</label>
+      <div id="terminal"></div>
+      <p id="buffer"></p>
+      <p id="status" role="status">Loading recent rows…</p>
+    </main>
+    <script type="module" src="/dist/scrollback-bundle.js"></script>
+  </body>
+</html>
