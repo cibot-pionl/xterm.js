@@ -32,6 +32,7 @@ export class TestTerminal extends CoreBrowserTerminal {
 }
 
 export class MockTerminal implements ITerminal {
+  public normalScrollbackRowsAdded = 0;
   public prependScrollback!: ITerminal['prependScrollback'];
   public setScrollbackWindowActive!: ITerminal['setScrollbackWindowActive'];
   public updateScrollbackWindow!: ITerminal['updateScrollbackWindow'];

@@ -1213,13 +1213,39 @@ describe('Terminal', () => {
       return Array.from({ length: lines.length }, (_, index) => lines.get(index)!.translateToString(true));
     }
 
-    it('gates all three operations on the proposed API option', () => {
+    it('gates scrollback paging on the proposed API option', () => {
       const api = new Terminal({ allowProposedApi: false });
       const marker = head();
       try {
+        assert.throws(() => api.normalScrollbackRowsAdded, /allowProposedApi/);
         assert.throws(() => api.prependScrollback([], { columns: 10, head: marker }), /allowProposedApi/);
         assert.throws(() => api.setScrollbackWindowActive(true), /allowProposedApi/);
         assert.throws(() => api.updateScrollbackWindow([], { columns: 10, direction: 'older', discard: 0 }), /allowProposedApi/);
+      } finally {
+        api.dispose();
+      }
+    });
+
+    it('counts normal output scrolling during writes and preserves the count across reset', async () => {
+      const api = new Terminal({ allowProposedApi: true, cols: 4, rows: 3, scrollback: 3 });
+      const writeCount = (data: string): Promise<number> => new Promise(resolve => {
+        api.write(data, () => resolve(api.normalScrollbackRowsAdded));
+      });
+      try {
+        assert.equal(api.normalScrollbackRowsAdded, 0);
+        assert.equal(await writeCount('a\r\nb\r\ncdefg'), 1); // Soft wrap at the bottom.
+        assert.equal(await writeCount('\r\nd\r\ne\r\nf'), 4); // Includes a trimmed row.
+        api.scrollToTop();
+        assert.isTrue(api.setScrollbackWindowActive(true));
+        assert.equal(await writeCount('\r\ng\r\nh'), 6);
+        assert.equal(api.buffer.normal.baseY, 3);
+        assert.equal(await writeCount('\x1b[?1049h\r\n\r\n\r\n\x1b[?1049l'), 6);
+        assert.equal(await writeCount('\x1b[2;3r\x1b[3;1H\n'), 6); // Scroll within margins.
+        assert.equal(await writeCount('\x1b[r\x1b[L\x1b[M'), 6); // Insert and delete lines.
+        api.resize(2, 3);
+        api.reset();
+        assert.equal(api.normalScrollbackRowsAdded, 6);
+        assert.equal(await writeCount('\n\n\n'), 7);
       } finally {
         api.dispose();
       }

@@ -1429,6 +1429,14 @@ declare module '@xterm/xterm' {
     write(data: string | Uint8Array, callback?: () => void): void;
 
     /**
+     * (EXPERIMENTAL) Number of rows that output has scrolled off the top of
+     * the normal screen since this terminal was created. Includes soft wraps
+     * and scrolling while the archive window is detached or scrollback is full.
+     * Read this in the write callback to measure the change for that write.
+     */
+    readonly normalScrollbackRowsAdded: number;
+
+    /**
      * (EXPERIMENTAL) Insert archived cells before the first normal-buffer row.
      * The addon must supply oldest-first rows at the current width and a
      * marker at row zero. Both the page and the resident buffer must start on

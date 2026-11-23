@@ -21,6 +21,7 @@ export class BufferService extends Disposable implements IBufferService {
   public cols: number;
   public rows: number;
   public buffers: IBufferSet;
+  public normalScrollbackRowsAdded = 0;
   /** Whether the user is scrolling (locks the scroll position) */
   public isUserScrolling: boolean = false;
 
@@ -93,6 +94,11 @@ export class BufferService extends Disposable implements IBufferService {
 
     const topRow = buffer.ybase + buffer.scrollTop;
     const bottomRow = buffer.ybase + buffer.scrollBottom;
+
+    // A detached window still consumes live rows, even though its prefix stays fixed.
+    if (buffer.scrollTop === 0 && buffer === this.buffers.normal) {
+      this.normalScrollbackRowsAdded++;
+    }
 
     if (buffer.scrollTop === 0 && !this._isReadingScrollback) {
       // Determine whether the buffer is going to be trimmed after insertion.

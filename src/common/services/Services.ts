@@ -17,6 +17,7 @@ export interface IBufferService {
   readonly rows: number;
   readonly buffer: IBuffer;
   readonly buffers: IBufferSet;
+  readonly normalScrollbackRowsAdded: number;
   isUserScrolling: boolean;
   /** A detached history window occupies [0, normal.ybase). The live screen follows it. */
   scrollbackWindowActive: boolean;

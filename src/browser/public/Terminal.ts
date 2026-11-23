@@ -224,6 +224,10 @@ export class Terminal extends Disposable implements ITerminalApi {
   public write(data: string | Uint8Array, callback?: () => void): void {
     this._core.write(data, callback);
   }
+  public get normalScrollbackRowsAdded(): number {
+    this._checkProposedApi();
+    return this._core.normalScrollbackRowsAdded;
+  }
   public prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult> {
     this._checkProposedApi();
     return this._core.prependScrollback(rows, options);

@@ -1114,6 +1114,10 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     this._charSizeService?.measure();
   }
 
+  public get normalScrollbackRowsAdded(): number {
+    return this._bufferService.normalScrollbackRowsAdded;
+  }
+
   /** The row-zero marker identifies this buffer and follows its text through the insert. */
   public prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult> {
     const { columns, head, signal } = options;

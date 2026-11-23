@@ -113,7 +113,7 @@ interface ITerminalProxyCustomMethods {
   write(data: string | Uint8Array): Promise<void>;
 }
 
-type TerminalProxyAsyncPropOverrides = 'cols' | 'rows' | 'modes';
+type TerminalProxyAsyncPropOverrides = 'cols' | 'rows' | 'modes' | 'normalScrollbackRowsAdded';
 type TerminalProxyAsyncMethodOverrides = 'hasSelection' | 'getSelection' | 'getSelectionPosition' | 'registerMarker' | 'registerDecoration';
 // Call prependScrollback in the browser where the marker and abort signal live.
 type TerminalProxyCustomOverrides = 'buffer' | 'dimensions' | 'prependScrollback' | 'setScrollbackWindowActive' | 'updateScrollbackWindow' | (
@@ -235,6 +235,7 @@ export class TerminalProxy implements ITerminalProxyCustomMethods, PlaywrightApi
   // #region Simple properties
   public get cols(): Promise<number> { return this.evaluate(([term]) => term.cols); }
   public get rows(): Promise<number> { return this.evaluate(([term]) => term.rows); }
+  public get normalScrollbackRowsAdded(): Promise<number> { return this.evaluate(([term]) => term.normalScrollbackRowsAdded); }
   public get modes(): Promise<IModes> { return this.evaluate(([term]) => term.modes); }
   public get dimensions(): Promise<IRenderDimensions | undefined> { return this.evaluate(([term]) => term.dimensions); }
   // #endregion
