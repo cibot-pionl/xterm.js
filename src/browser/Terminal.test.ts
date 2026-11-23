@@ -1220,6 +1220,7 @@ describe('Terminal', () => {
         assert.throws(() => api.normalScrollbackRowsAdded, /allowProposedApi/);
         assert.throws(() => api.editScrollback([], { columns: 10, direction: 'older', head: marker }), /allowProposedApi/);
         assert.throws(() => api.setScrollbackWindowActive(true), /allowProposedApi/);
+        assert.throws(() => api.setScrollbackViewport(undefined), /allowProposedApi/);
       } finally {
         api.dispose();
       }

@@ -604,6 +604,17 @@ declare module '@xterm/xterm' {
     readonly isWrapped?: boolean;
   }
 
+  /** Maps the loaded normal buffer to an external scrollback range. */
+  export interface IScrollbackViewport {
+    /**
+     * Total rows including the live screen, and the row index of local row
+     * zero in that range. Return undefined to use only the loaded rows.
+     */
+    getRange(): { readonly rows: number, readonly offset: number } | undefined;
+    /** Called when scroll input targets rows outside the loaded buffer. */
+    requestPage(direction: 'older' | 'newer'): void;
+  }
+
   /** Options for an atomic edit of normal scrollback. */
   export interface IScrollbackEditOptions {
     readonly columns: number;
@@ -1451,6 +1462,14 @@ declare module '@xterm/xterm' {
      * Fill any gap to the live screen before rejoining.
      */
     setScrollbackWindowActive(active: boolean): boolean;
+
+    /**
+     * (EXPERIMENTAL) Set the normal scrollbar's range and resident offset.
+     * xterm only draws loaded rows. The provider can load adjacent pages
+     * when scroll input goes past them. Set undefined to remove the mapping.
+     * Passing the same provider again refreshes the scrollbar geometry.
+     */
+    setScrollbackViewport(viewport?: IScrollbackViewport): void;
 
     /**
      * Writes data to the terminal, followed by a break line character (\n).

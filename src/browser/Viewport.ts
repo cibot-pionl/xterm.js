@@ -3,6 +3,7 @@
  * @license MIT
  */
 
+import type { IScrollbackViewport } from '@xterm/xterm';
 import { ICoreBrowserService, IRenderService, IThemeService } from './services/Services';
 import { ViewportConstants } from './shared/Constants';
 import { Disposable, toDisposable } from '../common/Lifecycle';
@@ -24,6 +25,8 @@ export class Viewport extends Disposable {
 
   private _queuedAnimationFrame?: number;
   private _latestYDisp?: number;
+  private _latestScrollOffset = 0;
+  private _scrollbackViewport: IScrollbackViewport | undefined;
   private _isSyncing: boolean = false;
   private _isHandlingScroll: boolean = false;
   private _suppressOnScrollHandler: boolean = false;
@@ -134,7 +137,7 @@ export class Viewport extends Disposable {
     }
     this._scrollableElement.setScrollPosition({
       reuseAnimation: !disableSmoothScroll,
-      scrollTop: line * this._renderService.dimensions.css.cell.height
+      scrollTop: (line + (this._scrollbackRange()?.offset ?? 0)) * this._renderService.dimensions.css.cell.height
     });
   }
 
@@ -169,6 +172,25 @@ export class Viewport extends Disposable {
     });
   }
 
+  /** Refresh the logical scrollbar range once the provider's row range changes. */
+  public setScrollbackViewport(viewport?: IScrollbackViewport): void {
+    this._scrollbackViewport = viewport;
+    this.syncScrollPosition();
+  }
+
+  /** The alternate screen always uses its own physical extent. */
+  private _scrollbackRange(): ReturnType<IScrollbackViewport['getRange']> {
+    if (this._bufferService.buffer !== this._bufferService.buffers.normal) {
+      return undefined;
+    }
+    const range = this._scrollbackViewport?.getRange();
+    if (!range || !Number.isSafeInteger(range.rows) || !Number.isSafeInteger(range.offset) ||
+        range.offset < 0 || range.rows < range.offset + this._bufferService.scrollableRows) {
+      return undefined;
+    }
+    return range;
+  }
+
   /**
    * Page edits move buffer coordinates outside the normal scroll path. Drop
    * the previous target before another wheel event can use the old position.
@@ -189,21 +211,24 @@ export class Viewport extends Disposable {
       return;
     }
     this._isSyncing = true;
+    const range = this._scrollbackRange();
+    const offset = range?.offset ?? 0;
 
     // Ignore any onScroll event that happens as a result of dimensions changing as this should
     // never cause a scrollLines call, only setScrollPosition can do that.
     this._suppressOnScrollHandler = true;
     this._scrollableElement.setScrollDimensions({
       height: this._renderService.dimensions.css.canvas.height,
-      scrollHeight: this._renderService.dimensions.css.cell.height * this._bufferService.scrollableRows
+      scrollHeight: this._renderService.dimensions.css.cell.height * (range?.rows ?? this._bufferService.scrollableRows)
     });
     this._suppressOnScrollHandler = false;
 
     // If ydisp has been changed by some other component (input/buffer), then stop animating smooth
     // scroll and scroll there immediately.
-    if (ydisp !== this._latestYDisp) {
+    if (ydisp !== this._latestYDisp || offset !== this._latestScrollOffset) {
+      this._latestScrollOffset = offset;
       this._scrollableElement.setScrollPosition({
-        scrollTop: ydisp * this._renderService.dimensions.css.cell.height
+        scrollTop: (ydisp + offset) * this._renderService.dimensions.css.cell.height
       });
     }
 
@@ -218,13 +243,23 @@ export class Viewport extends Disposable {
       return;
     }
     this._isHandlingScroll = true;
-    const newRow = Math.round(e.scrollTop / this._renderService.dimensions.css.cell.height);
+    const range = this._scrollbackRange();
+    const target = Math.round(e.scrollTop / this._renderService.dimensions.css.cell.height) - (range?.offset ?? 0);
+    const lastLoaded = Math.max(0, this._bufferService.scrollableRows - this._bufferService.rows);
+    const newRow = range ? Math.max(0, Math.min(target, lastLoaded)) : target;
     const diff = newRow - this._bufferService.buffer.ydisp;
     if (diff !== 0) {
       this._latestYDisp = newRow;
       this._onRequestScrollLines.fire(diff);
     }
+    if (target !== newRow) {
+      // Keep the thumb at the loaded edge until the addon can supply rows.
+      this.syncScrollPosition();
+    }
     this._isHandlingScroll = false;
+    if (target !== newRow) {
+      this._scrollbackViewport?.requestPage(target < newRow ? 'older' : 'newer');
+    }
   }
 
   public handleTouchScroll(translationY: number): void {

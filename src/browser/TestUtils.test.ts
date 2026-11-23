@@ -35,6 +35,7 @@ export class MockTerminal implements ITerminal {
   public normalScrollbackRowsAdded = 0;
   public editScrollback!: ITerminal['editScrollback'];
   public setScrollbackWindowActive!: ITerminal['setScrollbackWindowActive'];
+  public setScrollbackViewport!: ITerminal['setScrollbackViewport'];
   public onBlur!: IEvent<void>;
   public onFocus!: IEvent<void>;
   public onA11yChar!: IEvent<string>;

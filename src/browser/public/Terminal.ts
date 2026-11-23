@@ -12,7 +12,7 @@ import { AddonManager } from '../../common/public/AddonManager';
 import { BufferNamespaceApi } from '../../common/public/BufferNamespaceApi';
 import { ParserApi } from '../../common/public/ParserApi';
 import { UnicodeApi } from '../../common/public/UnicodeApi';
-import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling, IScrollbackEditOptions, IScrollbackRow, ScrollbackEditResult } from '@xterm/xterm';
+import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling, IScrollbackEditOptions, IScrollbackRow, IScrollbackViewport, ScrollbackEditResult } from '@xterm/xterm';
 import type { IEvent } from '../../common/Event';
 
 /**
@@ -235,6 +235,10 @@ export class Terminal extends Disposable implements ITerminalApi {
   public setScrollbackWindowActive(active: boolean): boolean {
     this._checkProposedApi();
     return this._core.setScrollbackWindowActive(active);
+  }
+  public setScrollbackViewport(viewport?: IScrollbackViewport): void {
+    this._checkProposedApi();
+    this._core.setScrollbackViewport(viewport);
   }
   public writeln(data: string | Uint8Array, callback?: () => void): void {
     this._core.write(data);

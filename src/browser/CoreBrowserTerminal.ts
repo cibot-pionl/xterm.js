@@ -21,7 +21,7 @@
  *   http://linux.die.net/man/7/urxvt
  */
 
-import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi, IScrollbackEditOptions, IScrollbackRow, ScrollbackEditResult } from '@xterm/xterm';
+import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi, IScrollbackEditOptions, IScrollbackRow, IScrollbackViewport, ScrollbackEditResult } from '@xterm/xterm';
 import { copyHandler, handlePasteEvent, moveTextAreaUnderMouseCursor, paste, rightClickHandler } from './Clipboard';
 import * as Strings from './LocalizableStrings';
 import { OscLinkProvider } from './OscLinkProvider';
@@ -75,6 +75,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
   public get linkifier(): ILinkifier2 | undefined { return this._linkifier.value; }
   private _overviewRulerRenderer: OverviewRulerRenderer | undefined;
   private _viewport: Viewport | undefined;
+  private _scrollbackViewport: IScrollbackViewport | undefined;
   private _cancelScrollbackEdit: (() => void) | undefined;
   private _scrollbackWindowEpoch = 0;
 
@@ -598,6 +599,9 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     this._register(this.onFocus(() => this._renderService!.handleFocus()));
 
     this._viewport = this._register(this._instantiationService.createInstance(Viewport, this.element, this.screenElement));
+    if (this._scrollbackViewport) {
+      this._viewport.setScrollbackViewport(this._scrollbackViewport);
+    }
     this._register(this._viewport.onRequestScrollLines(e => {
       super.scrollLines(e, false);
       this.refresh(0, this.rows - 1);
@@ -1137,6 +1141,12 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     service.scrollbackWindowActive = active;
     this._syncScrollbackView();
     return true;
+  }
+
+  /** Allow addons to report the logical extent without allocating those rows. */
+  public setScrollbackViewport(viewport?: IScrollbackViewport): void {
+    this._scrollbackViewport = viewport;
+    this._viewport?.setScrollbackViewport(viewport);
   }
 
   /** Apply a page without moving retained text on screen or altering parser state. */

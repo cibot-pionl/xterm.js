@@ -44,3 +44,44 @@ test('a page edit rebases the next scroll and keeps the selection attached to it
     await ctx.page.close();
   }
 });
+
+test('the native scrollbar keeps its logical position across a page import', async ({ browser }) => {
+  const ctx = await createTestContext(browser);
+  try {
+    await openTerminal(ctx, { cols: 10, rows: 4, smoothScrollDuration: 0 });
+    await ctx.proxy.write('A\r\nB\r\nC\r\nD\r\nE\r\nF');
+    const result = await ctx.termHandle.evaluate(async term => {
+      const view = term.element!.ownerDocument.defaultView!;
+      await new Promise<void>(resolve => view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve())));
+      const buffer = term.buffer.normal;
+      const slider = term.element!.querySelector<HTMLElement>('.xterm-scrollbar.xterm-vertical .xterm-slider')!;
+      const thumb = () => ({ top: slider.offsetTop, height: slider.offsetHeight });
+      const residentOnly = thumb().height;
+      const head = term.registerMarker(-buffer.baseY - buffer.cursorY)!;
+      const requests: string[] = [];
+      term.setScrollbackViewport({
+        getRange: () => ({ rows: 100, offset: 94 - head.line }),
+        requestPage: direction => requests.push(direction)
+      });
+
+      term.scrollLines(-1);
+      const before = thumb();
+      const row = buffer.getLine(buffer.viewportY)?.translateToString(true);
+      const inserted = await term.editScrollback([{ cells: [{ text: 'P', width: 1 }] }], {
+        columns: term.cols, direction: 'older', head
+      });
+      const after = thumb();
+      const sameRow = buffer.getLine(buffer.viewportY)?.translateToString(true) === row;
+      term.scrollLines(-200);
+      return { before, after, sameRow, inserted, residentOnly, requests, edge: buffer.viewportY };
+    });
+    deepStrictEqual(result.after, result.before);
+    deepStrictEqual(result.sameRow, true);
+    deepStrictEqual(result.inserted, 'inserted');
+    deepStrictEqual(result.before.height < result.residentOnly, true, JSON.stringify(result));
+    deepStrictEqual(result.requests, ['older']);
+    deepStrictEqual(result.edge, 0);
+  } finally {
+    await ctx.page.close();
+  }
+});
