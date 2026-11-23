@@ -1168,8 +1168,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
         });
         finish(inserted ? 'inserted' : 'capacity');
         if (inserted) {
-          this._onScroll.fire({ position: buffer.ydisp });
-          this.refresh(0, this.rows - 1);
+          this._syncScrollbackView();
         }
       });
     });
@@ -1186,8 +1185,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     }
     this._scrollbackWindowEpoch++;
     service.scrollbackWindowActive = active;
-    this._onScroll.fire({ position: buffer.ydisp });
-    this.refresh(0, this.rows - 1);
+    this._syncScrollbackView();
     return true;
   }
 
@@ -1250,11 +1248,16 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
         buffer.ydisp += shift;
         buffer.ybase += change;
         buffer.savedY = Math.max(0, buffer.savedY + change);
-        this._onScroll.fire({ position: buffer.ydisp });
-        this.refresh(0, this.rows - 1);
+        this._syncScrollbackView();
         finish('inserted');
       });
     });
+  }
+
+  private _syncScrollbackView(): void {
+    this._viewport?.syncScrollPosition();
+    this._onScroll.fire({ position: this.buffer.ydisp });
+    this.refresh(0, this.rows - 1);
   }
 
   /**

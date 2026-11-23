@@ -164,6 +164,13 @@ export class Viewport extends Disposable {
     });
   }
 
+  /**
+   * Move the native scrollbar to the rebased buffer before the next input.
+   */
+  public syncScrollPosition(): void {
+    this._sync();
+  }
+
   private _sync(ydisp: number = this._bufferService.buffer.ydisp): void {
     if (!this._renderService || this._isSyncing) {
       return;
