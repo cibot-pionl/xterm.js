@@ -21,7 +21,7 @@
  *   http://linux.die.net/man/7/urxvt
  */
 
-import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi, IScrollbackEditOptions, IScrollbackRow, IScrollbackViewport, ScrollbackEditResult } from '@xterm/xterm';
+import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi, IScrollbackEditOptions, IScrollbackReplaceOptions, IScrollbackRow, IScrollbackViewport, ScrollbackEditResult } from '@xterm/xterm';
 import { copyHandler, handlePasteEvent, moveTextAreaUnderMouseCursor, paste, rightClickHandler } from './Clipboard';
 import * as Strings from './LocalizableStrings';
 import { OscLinkProvider } from './OscLinkProvider';
@@ -49,7 +49,7 @@ import * as Browser from '../common/Platform';
 import { ColorRequestType, IColorEvent, ITerminalOptions, KeyboardResultType, SpecialColorIndex } from '../common/Types';
 import { DEFAULT_ATTR_DATA } from '../common/buffer/BufferLine';
 import { IBuffer, IBufferLine } from '../common/buffer/Types';
-import { createScrollbackLines } from './ScrollbackPage';
+import { createScrollbackLines, ScrollbackPageLimits } from './ScrollbackPage';
 import { C0, C1ESCAPED } from '../common/data/EscapeSequences';
 import { toRgbString } from '../common/input/XParseColor';
 import { DecorationService } from '../common/services/DecorationService';
@@ -77,6 +77,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
   private _viewport: Viewport | undefined;
   private _scrollbackViewport: IScrollbackViewport | undefined;
   private _cancelScrollbackEdit: (() => void) | undefined;
+  private readonly _pendingScrollbackClears = new Set<() => void>();
   private _scrollbackWindowEpoch = 0;
 
   public browser: IBrowser = Browser as any;
@@ -213,6 +214,10 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     }));
     this._register(toDisposable(() => {
       this._cancelScrollbackEdit?.();
+      for (const cancel of this._pendingScrollbackClears) {
+        cancel();
+      }
+      this._pendingScrollbackClears.clear();
       this._customKeyEventHandler = undefined;
       this.element?.parentNode?.removeChild(this.element);
     }));
@@ -1099,22 +1104,27 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
 
   /** Drop the detached prefix before resize can reflow it into the live screen. */
   private _discardScrollbackWindow(): void {
-    if (!this._bufferService.scrollbackWindowActive) {
-      return;
+    if (this._bufferService.scrollbackWindowActive) {
+      this._replaceScrollbackPrefix([], 0);
     }
-    this._bufferService.scrollbackWindowActive = false;
+  }
+
+  private _replaceScrollbackPrefix(page: IBufferLine[], viewport: number): void {
     const buffer = this.buffers.normal;
-    let notifySelection: (() => void) | undefined;
     const discarded = buffer.ybase;
+    const shift = page.length - discarded;
+    this._bufferService.scrollbackWindowActive = page.length > 0;
+    let notifySelection: (() => void) | undefined;
     if (this.buffer === buffer) {
-      notifySelection = this._selectionService?.rebaseSelectionForScrollback(discarded, buffer.lines.length, -discarded);
-      this._bufferService.isUserScrolling = false;
+      notifySelection = this._selectionService?.rebaseSelectionForScrollback(discarded, buffer.lines.length, shift);
+      this._bufferService.isUserScrolling = page.length > 0;
     }
     buffer.editLines(() => {
       buffer.lines.splice(0, discarded);
-      buffer.savedY = Math.max(0, buffer.savedY - discarded);
-      buffer.ybase = 0;
-      buffer.ydisp = 0;
+      buffer.lines.prepend(page);
+      buffer.savedY = page.length + Math.max(0, buffer.savedY - discarded);
+      buffer.ybase = page.length;
+      buffer.ydisp = viewport;
     });
     notifySelection?.();
   }
@@ -1205,6 +1215,54 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     });
   }
 
+  public replaceScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackReplaceOptions): Promise<ScrollbackEditResult> {
+    const { columns, viewport, signal } = options;
+    const buffer = this.buffers.normal;
+    const lines = buffer.lines;
+    const epoch = this._scrollbackWindowEpoch;
+    const added = rows.length;
+    const check = (): ScrollbackEditResult | undefined => {
+      if (buffer !== this.buffer || lines !== buffer.lines || epoch !== this._scrollbackWindowEpoch ||
+          columns !== this.cols || (added === 0 && !this._bufferService.scrollbackWindowActive)) {
+        return 'stale';
+      }
+      if (!Number.isSafeInteger(viewport) || viewport < 0 || (added === 0 ? viewport !== 0 : viewport + this.rows > added)) {
+        return 'invalid';
+      }
+      return lines.length - buffer.ybase + added > lines.maxLength ? 'capacity' : undefined;
+    };
+    const replacementLimit = Math.max(ScrollbackPageLimits.ADJACENT_PAGE, 2 * this.rows * this.cols);
+    return this._enqueueScrollbackEdit(rows, columns, signal, check, page => {
+      this._scrollbackWindowEpoch++;
+      this._replaceScrollbackPrefix(page, viewport);
+      return 'inserted';
+    }, replacementLimit);
+  }
+
+  public clearScrollback(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const cancel = (): void => reject(new Error('Terminal disposed before clearing scrollback'));
+      if (this._store.isDisposed) {
+        cancel();
+        return;
+      }
+      this._pendingScrollbackClears.add(cancel);
+      this._enqueueAfterWrites(() => {
+        this._pendingScrollbackClears.delete(cancel);
+        try {
+          this._scrollbackWindowEpoch++;
+          this._replaceScrollbackPrefix([], 0);
+          if (this.buffer === this.buffers.normal) {
+            this._syncScrollbackView();
+          }
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  }
+
   /**
    * Validate and snapshot addon cells before returning control to the caller.
    * Recheck the anchor at the write-queue boundary because pending input may
@@ -1215,7 +1273,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
   private _enqueueScrollbackEdit(
     rows: ReadonlyArray<IScrollbackRow>, columns: number, signal: AbortSignal | undefined,
     check: () => ScrollbackEditResult | undefined,
-    apply: (page: IBufferLine[]) => ScrollbackEditResult
+    apply: (page: IBufferLine[]) => ScrollbackEditResult, replacementLimit?: number
   ): Promise<ScrollbackEditResult> {
     if (this._store.isDisposed || this._cancelScrollbackEdit || signal?.aborted) {
       return Promise.resolve('stale');
@@ -1224,7 +1282,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     if (failure) {
       return Promise.resolve(failure);
     }
-    let page = createScrollbackLines(rows, columns);
+    let page = replacementLimit !== undefined && rows.length === 0 ? [] : createScrollbackLines(rows, columns, replacementLimit);
     if (!page) {
       return Promise.resolve('invalid');
     }

@@ -9,9 +9,12 @@ import { CellData } from '../common/buffer/CellData';
 import { Attributes, BgFlags, FgFlags } from '../common/buffer/Constants';
 import type { CharData } from '../common/buffer/Types';
 
-const MAX_PAGE_CELLS = 65_536;
 // oxlint-disable-next-line no-control-regex
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/;
+
+export const enum ScrollbackPageLimits {
+  ADJACENT_PAGE = 65_536
+}
 
 /** Translate public palette/RGB colors into xterm cell flags, rejecting out-of-range values. */
 function encodeColor(color: ScrollbackColor | undefined): number | undefined {
@@ -34,8 +37,10 @@ function encodeColor(color: ScrollbackColor | undefined): number | undefined {
  * Addons supply printable cells. Only core constructs native wide-cell trailers
  * and color flags. Reject the entire page if any row exceeds the bounds.
  */
-export function createScrollbackLines(rows: ReadonlyArray<IScrollbackRow>, columns: number): BufferLine[] | undefined {
-  if (!rows.length || rows[0].isWrapped || rows.length * columns > MAX_PAGE_CELLS) {
+export function createScrollbackLines(
+  rows: ReadonlyArray<IScrollbackRow>, columns: number, limit: number = ScrollbackPageLimits.ADJACENT_PAGE
+): BufferLine[] | undefined {
+  if (!rows.length || rows[0].isWrapped || rows.length * columns > limit) {
     return undefined;
   }
 
@@ -51,7 +56,7 @@ export function createScrollbackLines(rows: ReadonlyArray<IScrollbackRow>, colum
     let column = 0;
     for (const { text, width, foreground, background, bold, italic, underline } of row.cells) {
       if ((width !== 1 && width !== 2) || column + width > columns || typeof text !== 'string' ||
-          text.length > MAX_PAGE_CELLS - textLength || CONTROL_CHARACTER.test(text) || (width === 2 && !text)) {
+          text.length > limit - textLength || CONTROL_CHARACTER.test(text) || (width === 2 && !text)) {
         return undefined;
       }
       textLength += text.length;

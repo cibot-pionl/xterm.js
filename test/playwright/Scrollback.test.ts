@@ -3,7 +3,7 @@
  * @license MIT
  */
 
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { deepStrictEqual } from 'assert';
 import { createTestContext, openTerminal } from './TestUtils';
 
@@ -81,6 +81,45 @@ test('the native scrollbar keeps its logical position across a page import', asy
     deepStrictEqual(result.before.height < result.residentOnly, true, JSON.stringify(result));
     deepStrictEqual(result.requests, ['older']);
     deepStrictEqual(result.edge, 0);
+  } finally {
+    await ctx.page.close();
+  }
+});
+
+test('the scrollbar track and thumb report logical seek targets while the wheel requests adjacent rows', async ({ browser }) => {
+  const ctx = await createTestContext(browser);
+  try {
+    await openTerminal(ctx, { cols: 10, rows: 4, smoothScrollDuration: 0 });
+    await ctx.proxy.write('A\r\nB\r\nC\r\nD\r\nE\r\nF');
+    const calls = await ctx.termHandle.evaluateHandle(term => {
+      const seeks: number[] = [];
+      const requests: string[] = [];
+      term.setScrollbackViewport({
+        getRange: () => ({ rows: 100, offset: 40 }),
+        requestPage: direction => requests.push(direction),
+        seek: row => seeks.push(row)
+      });
+      return { seeks, requests };
+    });
+    const snapshot = () => calls.evaluate(value => value);
+    const track = ctx.page.locator('.xterm-scrollbar.xterm-vertical');
+    await track.hover();
+    const trackBox = (await track.boundingBox())!;
+    const thumbBox = (await track.locator('.xterm-slider').boundingBox())!;
+    const x = thumbBox.x + thumbBox.width / 2;
+    const y = thumbBox.y + thumbBox.height / 2;
+
+    await ctx.page.mouse.click(x, trackBox.y + 1);
+    await ctx.page.mouse.move(x, y);
+    await ctx.page.mouse.down();
+    await ctx.page.mouse.move(x, trackBox.y + trackBox.height - 1);
+    await ctx.page.mouse.up();
+    deepStrictEqual(await snapshot(), { seeks: [0, 96], requests: [] });
+    deepStrictEqual(await ctx.termHandle.evaluate(term => term.buffer.normal.viewportY), 2);
+
+    await ctx.page.locator('.xterm-screen').hover();
+    await ctx.page.mouse.wheel(0, -100);
+    await expect.poll(snapshot).toEqual({ seeks: [0, 96], requests: ['older'] });
   } finally {
     await ctx.page.close();
   }

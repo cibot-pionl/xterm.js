@@ -29,6 +29,7 @@ export interface IScrollbarHost {
   handleMouseWheel(mouseWheelEvent: StandardWheelEvent): void;
   handleDragStart(): void;
   handleDragEnd(): void;
+  handleScrollbarScroll?(position: INewScrollPosition): boolean;
 }
 
 interface IAbstractScrollbarOptions {
@@ -270,7 +271,9 @@ export abstract class AbstractScrollbar extends Widget {
     const desiredScrollPosition: INewScrollPosition = {};
     this.writeScrollPosition(desiredScrollPosition, _desiredScrollPosition);
 
-    this._scrollable.setScrollPositionNow(desiredScrollPosition);
+    if (!this._host.handleScrollbarScroll?.(desiredScrollPosition)) {
+      this._scrollable.setScrollPositionNow(desiredScrollPosition);
+    }
   }
 
   public updateScrollbarSize(scrollbarSize: number): void {

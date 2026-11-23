@@ -62,7 +62,7 @@ export class Viewport extends Disposable {
       mouseWheelSmoothScroll: true,
       verticalHasArrows: this._optionsService.rawOptions.scrollbar?.showArrows ?? false,
       ...this._getChangeOptions()
-    }, scrollable));
+    }, scrollable, scrollTop => this._handleScrollbarScroll(scrollTop)));
     this._register(this._optionsService.onMultipleOptionChange([
       'scrollSensitivity',
       'fastScrollSensitivity',
@@ -260,6 +260,24 @@ export class Viewport extends Disposable {
     if (target !== newRow) {
       this._scrollbackViewport?.requestPage(target < newRow ? 'older' : 'newer');
     }
+  }
+
+  private _handleScrollbarScroll(scrollTop: number): boolean {
+    const range = this._scrollbackRange();
+    const cellHeight = this._renderService.dimensions.css.cell.height;
+    if (!range || !this._scrollbackViewport?.seek || !cellHeight) {
+      return false;
+    }
+    const row = Math.min(range.rows - this._bufferService.rows, Math.round(scrollTop / cellHeight));
+    const lastLoaded = range.offset + Math.max(0, this._bufferService.scrollableRows - this._bufferService.rows);
+    if (row >= range.offset && row <= lastLoaded) {
+      return false;
+    }
+    // The page may load asynchronously. Leave the rendered rows and thumb at
+    // their current position until the provider commits the replacement.
+    this.syncScrollPosition();
+    this._scrollbackViewport.seek(row);
+    return true;
   }
 
   public handleTouchScroll(translationY: number): void {

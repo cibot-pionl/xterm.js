@@ -1219,6 +1219,8 @@ describe('Terminal', () => {
       try {
         assert.throws(() => api.normalScrollbackRowsAdded, /allowProposedApi/);
         assert.throws(() => api.editScrollback([], { columns: 10, direction: 'older', head: marker }), /allowProposedApi/);
+        assert.throws(() => api.replaceScrollback([], { columns: 10, viewport: 0 }), /allowProposedApi/);
+        assert.throws(() => api.clearScrollback(), /allowProposedApi/);
         assert.throws(() => api.setScrollbackWindowActive(true), /allowProposedApi/);
         assert.throws(() => api.setScrollbackViewport(undefined), /allowProposedApi/);
       } finally {
@@ -1273,6 +1275,117 @@ describe('Terminal', () => {
       assert.equal(await terminal.editScrollback(Array(6).fill(row('X')), anchor), 'capacity');
       assert.deepEqual(contents(), ['A', 'B', 'C']);
       assert.equal(anchor.head.line, 0);
+    });
+
+    it('replaces history repeatedly, preserving live input, markers and the saved cursor', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD\x1b7');
+      const archived = head();
+      const live = terminal.registerMarker(0);
+      const options = { columns: 10, viewport: 1 };
+      assert.equal(await terminal.replaceScrollback([row('X'), row('Y')], options), 'invalid');
+      assert.equal(await terminal.replaceScrollback(Array(7).fill(row('X')), options), 'capacity');
+      assert.deepEqual(contents(), ['A', 'B', 'C', 'D']);
+
+      const core: ITerminal = terminal;
+      assert.equal(await core.replaceScrollback([row('P'), row('Q'), row('R')], options), 'inserted');
+      assert.deepEqual(contents(), ['P', 'Q', 'R', 'C', 'D']);
+      assert.isTrue(archived.isDisposed);
+      assert.deepEqual([terminal.buffer.ydisp, terminal.buffer.ybase, live.line], [1, 3, 4]);
+
+      const input: string[] = [];
+      terminal.onData(data => input.push(data));
+      terminal.input('k');
+      const pending = terminal.writeP('\x1b[1;1H!\x1b8?');
+      const next = terminal.replaceScrollback([row('X'), row('Y')], { ...options, viewport: 0 });
+      await pending;
+      assert.equal(await next, 'inserted');
+      assert.deepEqual(input, ['k']);
+      assert.deepEqual(contents(), ['X', 'Y', '!', 'D?']);
+      assert.deepEqual([terminal.buffer.ydisp, terminal.buffer.ybase, live.line], [0, 2, 3]);
+
+      assert.equal(await core.replaceScrollback([], { ...options, viewport: 0 }), 'inserted');
+      assert.deepEqual(contents(), ['!', 'D?']);
+      assert.deepEqual([terminal.buffer.ydisp, terminal.buffer.ybase, live.line], [0, 0, 1]);
+      await terminal.writeP('\r\nE');
+      assert.deepEqual(contents(), ['!', 'D?', 'E']);
+      assert.equal(terminal.buffer.ydisp, 1);
+    });
+
+    it('cancels a queued replacement across a resize even if the original size returns', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD');
+      let release!: (handled: boolean) => void;
+      let started!: () => void;
+      const ready = new Promise<void>(resolve => { started = resolve; });
+      terminal.registerOscHandler(1337, () => new Promise<boolean>(resolve => { release = resolve; started(); }));
+      terminal.write('\x1b]1337;pause\x07');
+      await ready;
+      const options = { columns: 10, viewport: 0 };
+      const replacement = terminal.replaceScrollback([row('P'), row('Q')], options);
+      terminal.resize(10, 3);
+      terminal.resize(10, 2);
+      assert.equal(await replacement, 'stale');
+      assert.equal(await terminal.replaceScrollback([row('X'), row('Y')], options), 'stale');
+      const pending = terminal.writeP('!');
+      release(true);
+      await pending;
+      assert.deepEqual(contents(), ['A', 'B', 'C', 'D!']);
+      assert.equal(await terminal.replaceScrollback([row('X'), row('Y')], options), 'inserted');
+      assert.deepEqual(contents(), ['X', 'Y', 'C', 'D!']);
+    });
+
+    it('allows a complete large viewport only for replacement and bounds its lookbehind', async () => {
+      terminal.optionsService.options.scrollback = 600;
+      terminal.resize(512, 256);
+      const line = { cells: Array.from({ length: terminal.cols }, () => ({ text: 'x', width: 1 as const })) };
+      const page = Array<IScrollbackRow>(260).fill(line);
+      const options = { columns: terminal.cols, viewport: 4 };
+      assert.equal(await terminal.editScrollback(page, { columns: terminal.cols, direction: 'older', head: head() }), 'invalid');
+      assert.equal(await terminal.replaceScrollback(Array<IScrollbackRow>(513).fill(line), options), 'invalid');
+      assert.equal(await terminal.replaceScrollback(page, options), 'inserted');
+      assert.deepEqual([terminal.buffer.ydisp, terminal.buffer.ybase], [4, 260]);
+      assert.equal(terminal.buffer.lines.get(259)?.translateToString(true), 'x'.repeat(512));
+    });
+
+    it('clears history between writes without affecting a partial parser sequence or live markers', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD\x1b7');
+      const archived = head();
+      const live = terminal.registerMarker(0);
+      terminal.write('!\x1b[31');
+      const cleared = terminal.clearScrollback();
+      const after = terminal.writeP('m?\r\nE');
+
+      await cleared;
+      await after;
+      assert.deepEqual(contents(), ['C', 'D!?', 'E']);
+      assert.equal(terminal.buffer.lines.get(1)?.loadCell(2, new CellData()).getFgColor(), 1);
+      assert.isTrue(archived.isDisposed);
+      assert.equal(live.line, 1);
+      assert.equal(terminal.buffer.savedY, 1);
+      assert.equal(terminal.buffer.ydisp, 1);
+    });
+
+    it('clears detached normal history while leaving the alternate screen visible', async () => {
+      await terminal.writeP('A\r\nB\r\nC\r\nD');
+      terminal.scrollToTop();
+      assert.isTrue(terminal.setScrollbackWindowActive(true));
+      await terminal.writeP('\x1b[?1049h\x1b[1;1HX\r\nY');
+      assert.deepEqual(contents(), ['X', 'Y']);
+      await terminal.clearScrollback();
+      assert.deepEqual(contents(), ['X', 'Y']);
+      assert.equal(terminal.buffers.normal.ybase, 0);
+      await terminal.writeP('\x1b[?1049l');
+      assert.deepEqual(contents(), ['C', 'D']);
+      await terminal.writeP('!');
+      assert.deepEqual(contents(), ['C', 'D!']);
+    });
+
+    it('rejects a queued clear when the terminal is disposed', async () => {
+      const clearing = terminal.clearScrollback();
+      terminal.dispose();
+      await clearing.then(
+        () => assert.fail('Disposed terminal fulfilled a queued scrollback clear'),
+        (error: unknown) => assert.instanceOf(error, Error)
+      );
     });
 
     it('pages both ways around visible rows while input and output use the live screen', async () => {

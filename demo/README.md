@@ -34,3 +34,24 @@ when the buffer is full or detached.
 
 The example owns page IDs, fetch timing, cancellation, and which rows to drop.
 It fills the gap before rejoining the live screen.
+
+## Direct scrollbar seeks
+
+A provider can call `setScrollbackViewport` to map the scrollbar to the full
+history range. Its `getRange` returns the total row count, including the live
+screen, and the absolute index of local row zero. With the optional `seek`
+callback, dragging the thumb or clicking the track can request an unloaded
+absolute top row. The terminal keeps showing the loaded rows during the read.
+Wheel and keyboard scrolling continue to use `requestPage` at loaded edges.
+
+To show the requested row, load a page that begins at a logical line boundary
+and fills the screen from that row. Call `replaceScrollback` with the page,
+current column count, and the requested row's index within the page. The page
+must fit in the scrollback capacity. It can use up to 65,536 cells or twice the
+viewport's cell count, whichever is larger. The same limit applies to UTF-16
+code units. After the edit succeeds, update the provider's range and call
+`setScrollbackViewport` again to refresh the scrollbar.
+
+To return directly to live output, replace the detached page with an empty
+page and set its viewport row to zero. The live screen and parser stay active
+throughout both operations.

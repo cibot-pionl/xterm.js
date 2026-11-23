@@ -12,7 +12,7 @@ import { AddonManager } from '../../common/public/AddonManager';
 import { BufferNamespaceApi } from '../../common/public/BufferNamespaceApi';
 import { ParserApi } from '../../common/public/ParserApi';
 import { UnicodeApi } from '../../common/public/UnicodeApi';
-import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling, IScrollbackEditOptions, IScrollbackRow, IScrollbackViewport, ScrollbackEditResult } from '@xterm/xterm';
+import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling, IScrollbackEditOptions, IScrollbackReplaceOptions, IScrollbackRow, IScrollbackViewport, ScrollbackEditResult } from '@xterm/xterm';
 import type { IEvent } from '../../common/Event';
 
 /**
@@ -231,6 +231,14 @@ export class Terminal extends Disposable implements ITerminalApi {
   public editScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackEditOptions): Promise<ScrollbackEditResult> {
     this._checkProposedApi();
     return this._core.editScrollback(rows, options);
+  }
+  public replaceScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackReplaceOptions): Promise<ScrollbackEditResult> {
+    this._checkProposedApi();
+    return this._core.replaceScrollback(rows, options);
+  }
+  public clearScrollback(): Promise<void> {
+    this._checkProposedApi();
+    return this._core.clearScrollback();
   }
   public setScrollbackWindowActive(active: boolean): boolean {
     this._checkProposedApi();

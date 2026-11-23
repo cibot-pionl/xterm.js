@@ -181,7 +181,12 @@ export class SmoothScrollableElement extends Widget {
     return this._options;
   }
 
-  public constructor(element: HTMLElement, options: IScrollableElementCreationOptions, scrollable?: Scrollable) {
+  public constructor(
+    element: HTMLElement,
+    options: IScrollableElementCreationOptions,
+    scrollable?: Scrollable,
+    onScrollbarScroll?: (scrollTop: number) => boolean
+  ) {
     super();
     options = options ?? {};
     let resolvedScrollable: Scrollable;
@@ -212,6 +217,8 @@ export class SmoothScrollableElement extends Widget {
       handleMouseWheel: (mouseWheelEvent: StandardWheelEvent) => this._handleMouseWheel(mouseWheelEvent),
       handleDragStart: () => this._handleDragStart(),
       handleDragEnd: () => this._handleDragEnd(),
+      handleScrollbarScroll: position => position.scrollTop !== undefined &&
+        (onScrollbarScroll?.(this._scrollable.validateScrollPosition(position).scrollTop) ?? false)
     };
     this._verticalScrollbar = this._register(new VerticalScrollbar(this._scrollable, this._options, scrollbarHost));
     this._horizontalScrollbar = this._register(new HorizontalScrollbar(this._scrollable, this._options, scrollbarHost));

@@ -611,8 +611,14 @@ declare module '@xterm/xterm' {
      * zero in that range. Return undefined to use only the loaded rows.
      */
     getRange(): { readonly rows: number, readonly offset: number } | undefined;
-    /** Called when scroll input targets rows outside the loaded buffer. */
+    /** Called when scrolling requests an adjacent page beyond loaded rows. */
     requestPage(direction: 'older' | 'newer'): void;
+    /**
+     * Called when dragging the scrollbar thumb or clicking the track targets
+     * an unloaded row. The row is the absolute index of the requested top
+     * visible row in the range. If omitted, the provider gets requestPage.
+     */
+    seek?(row: number): void;
   }
 
   /** Options for an atomic edit of normal scrollback. */
@@ -629,12 +635,20 @@ declare module '@xterm/xterm' {
     readonly signal?: AbortSignal;
   }
 
+  /** Options for replacing the resident history. */
+  export interface IScrollbackReplaceOptions {
+    readonly columns: number;
+    /** Top visible row within the replacement page, or zero to rejoin live. */
+    readonly viewport: number;
+    readonly signal?: AbortSignal;
+  }
+
   /**
    * `inserted` commits the whole page. Other outcomes leave its rows unapplied.
    * `stale` means that the anchor, window or viewport changed, another edit is
    * pending, or the request was canceled. `capacity` means the page would evict
    * resident rows. `invalid` means the page, discard count or wrap boundary
-   * is invalid.
+   * or replacement viewport is invalid.
    */
   export type ScrollbackEditResult = 'inserted' | 'stale' | 'capacity' | 'invalid';
 
@@ -1456,6 +1470,26 @@ declare module '@xterm/xterm' {
     editScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackEditOptions): Promise<ScrollbackEditResult>;
 
     /**
+     * (EXPERIMENTAL) Replace the normal history prefix after queued writes
+     * without replacing the live screen. A nonempty page detaches the viewport,
+     * starts at a logical line boundary and must fill it at the requested row.
+     * The grid cell and UTF-16 code unit limits are each the larger of 65,536
+     * and twice the viewport's cell count. The page must fit in scrollback.
+     * An empty page discards detached history and returns to the live screen.
+     * If the viewport is already connected, an empty page returns `stale`.
+     */
+    replaceScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackReplaceOptions): Promise<ScrollbackEditResult>;
+
+    /**
+     * (EXPERIMENTAL) Clear normal scrollback at the current point in the write
+     * queue, including while the alternate screen is active. Preserve both
+     * live screens and parser state. A normal viewport on deleted history
+     * returns to the live screen. The promise rejects if the terminal is
+     * disposed before the clear runs.
+     */
+    clearScrollback(): Promise<void>;
+
+    /**
      * (EXPERIMENTAL) Restrict the normal viewport to archived rows while live
      * output continues. The viewport must fit entirely in history to detach.
      * Returns false if the active buffer or viewport cannot support the change.
@@ -1466,7 +1500,9 @@ declare module '@xterm/xterm' {
     /**
      * (EXPERIMENTAL) Set the normal scrollbar's range and resident offset.
      * xterm only draws loaded rows. The provider can load adjacent pages
-     * when scroll input goes past them. Set undefined to remove the mapping.
+     * when scroll input goes past them. A provider with `seek` can load an
+     * unloaded row directly when the user drags the thumb or clicks the track.
+     * Set undefined to remove the mapping.
      * Passing the same provider again refreshes the scrollbar geometry.
      */
     setScrollbackViewport(viewport?: IScrollbackViewport): void;
