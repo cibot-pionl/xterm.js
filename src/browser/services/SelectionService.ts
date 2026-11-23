@@ -271,6 +271,21 @@ export class SelectionService extends Disposable implements ISelectionService {
     this._onSelectionChange.fire();
   }
 
+  public rebaseSelectionForPrepend(amount: number): void {
+    if (this._model.isSelectAllActive) {
+      this._model.selectionStart = this._model.finalSelectionStart;
+      this._model.selectionEnd = this._model.finalSelectionEnd;
+      this._model.isSelectAllActive = false;
+    }
+    const { selectionStart, selectionEnd } = this._model;
+    if (selectionStart) {
+      this._model.selectionStart = [selectionStart[0], selectionStart[1] + amount];
+    }
+    if (selectionEnd) {
+      this._model.selectionEnd = [selectionEnd[0], selectionEnd[1] + amount];
+    }
+  }
+
   /**
    * Queues a refresh, redrawing the selection on the next opportunity.
    * @param isLinuxMouseSelection Whether the selection should be registered as a new

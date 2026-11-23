@@ -163,6 +163,10 @@ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
     this._writeBuffer.write(data, callback);
   }
 
+  protected _enqueueAfterWrites(callback: () => void): void {
+    this._writeBuffer.enqueueCallback(callback);
+  }
+
   /**
    * Write data to terminal synchonously.
    *

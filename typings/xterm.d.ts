@@ -582,6 +582,34 @@ declare module '@xterm/xterm' {
     readonly line: number;
   }
 
+  export type ScrollbackColor = { readonly kind: 'palette' | 'rgb', readonly value: number };
+
+  export interface IScrollbackCell {
+    /** One terminal cell's printable text, or an empty string for a blank. */
+    readonly text: string;
+    readonly width: 1 | 2;
+    readonly foreground?: ScrollbackColor;
+    readonly background?: ScrollbackColor;
+    readonly bold?: boolean;
+    readonly italic?: boolean;
+    readonly underline?: boolean;
+  }
+
+  export interface IScrollbackRow {
+    readonly cells: ReadonlyArray<IScrollbackCell>;
+    /** Whether the row continues the preceding row. */
+    readonly isWrapped?: boolean;
+  }
+
+  export interface IPrependScrollbackOptions {
+    readonly columns: number;
+    /** A marker at the first resident row of the normal buffer. */
+    readonly head: IMarker;
+    readonly signal?: AbortSignal;
+  }
+
+  export type PrependScrollbackResult = 'inserted' | 'stale' | 'capacity' | 'invalid';
+
   /**
    * Represents a disposable that tracks is disposed state.
    */
@@ -1379,6 +1407,15 @@ declare module '@xterm/xterm' {
      * {@link buffer} to reflect the change in the write.
      */
     write(data: string | Uint8Array, callback?: () => void): void;
+
+    /**
+     * Experimental. Inserts oldest-first render cells ahead of the normal
+     * buffer at the current width. The first page row and the first resident
+     * row must both begin a logical line. The page is applied after queued
+     * writes. If the anchor or geometry changes, or the entire page does not
+     * fit within scrollback, the buffer is left as is.
+     */
+    prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult>;
 
     /**
      * Writes data to the terminal, followed by a break line character (\n).

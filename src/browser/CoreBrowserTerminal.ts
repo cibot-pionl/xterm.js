@@ -21,7 +21,7 @@
  *   http://linux.die.net/man/7/urxvt
  */
 
-import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi } from '@xterm/xterm';
+import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi, IPrependScrollbackOptions, IScrollbackRow, PrependScrollbackResult } from '@xterm/xterm';
 import { copyHandler, handlePasteEvent, moveTextAreaUnderMouseCursor, paste, rightClickHandler } from './Clipboard';
 import * as Strings from './LocalizableStrings';
 import { OscLinkProvider } from './OscLinkProvider';
@@ -49,6 +49,7 @@ import * as Browser from '../common/Platform';
 import { ColorRequestType, IColorEvent, ITerminalOptions, KeyboardResultType, SpecialColorIndex } from '../common/Types';
 import { DEFAULT_ATTR_DATA } from '../common/buffer/BufferLine';
 import { IBuffer } from '../common/buffer/Types';
+import { createScrollbackLines } from './ScrollbackPage';
 import { C0, C1ESCAPED } from '../common/data/EscapeSequences';
 import { toRgbString } from '../common/input/XParseColor';
 import { DecorationService } from '../common/services/DecorationService';
@@ -74,6 +75,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
   public get linkifier(): ILinkifier2 | undefined { return this._linkifier.value; }
   private _overviewRulerRenderer: OverviewRulerRenderer | undefined;
   private _viewport: Viewport | undefined;
+  private _cancelScrollbackPrepend: (() => void) | undefined;
 
   public browser: IBrowser = Browser as any;
 
@@ -92,7 +94,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
   private _renderService: IRenderService | undefined;
   private _themeService: IThemeService | undefined;
   private _characterJoinerService: ICharacterJoinerService | undefined;
-  private _selectionService: ISelectionService | undefined;
+  private _selectionService: SelectionService | undefined;
 
   /**
    * Records whether the keydown event has already been handled and triggered a data event, if so
@@ -196,7 +198,9 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     // Setup listeners
     this._register(this._bufferService.onResize(e => this._afterResize(e.cols, e.rows)));
 
+    this._register(this.buffers.onBufferActivate(() => this._cancelScrollbackPrepend?.()));
     this._register(toDisposable(() => {
+      this._cancelScrollbackPrepend?.();
       this._customKeyEventHandler = undefined;
       this.element?.parentNode?.removeChild(this.element);
     }));
@@ -1072,11 +1076,74 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
       return;
     }
 
+    this._cancelScrollbackPrepend?.();
     super.resize(x, y);
   }
 
   private _afterResize(x: number, y: number): void {
     this._charSizeService?.measure();
+  }
+
+  public prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult> {
+    const { columns, head, signal } = options;
+    const buffer = this.buffers.normal;
+    const lines = buffer.lines;
+    const isCurrentHead = (): boolean =>
+      buffer === this.buffer && lines === buffer.lines && columns === this.cols &&
+      head.line === 0 && buffer.markers.includes(head);
+
+    if (this._store.isDisposed || this._cancelScrollbackPrepend || signal?.aborted || !isCurrentHead()) {
+      return Promise.resolve('stale');
+    }
+    if (!rows.length) {
+      return Promise.resolve('invalid');
+    }
+    if (rows.length > lines.maxLength - lines.length) {
+      return Promise.resolve('capacity');
+    }
+    let page = createScrollbackLines(rows, columns);
+    if (!page) {
+      return Promise.resolve('invalid');
+    }
+
+    return new Promise(resolve => {
+      const finish = (result: PrependScrollbackResult): void => {
+        this._cancelScrollbackPrepend = undefined;
+        signal?.removeEventListener('abort', cancel);
+        page = undefined;
+        resolve(result);
+      };
+      const cancel = (): void => finish('stale');
+      this._cancelScrollbackPrepend = cancel;
+      signal?.addEventListener('abort', cancel, { once: true });
+
+      this._enqueueAfterWrites(() => {
+        if (!page) {
+          return;
+        }
+        if (!isCurrentHead()) {
+          finish('stale');
+          return;
+        }
+        if (lines.get(0)?.isWrapped) {
+          finish('invalid');
+          return;
+        }
+
+        const amount = page.length;
+        const inserted = lines.prepend(page, () => {
+          this._selectionService?.rebaseSelectionForPrepend(amount);
+          buffer.ybase += amount;
+          buffer.ydisp += amount;
+          buffer.savedY += amount;
+        });
+        finish(inserted ? 'inserted' : 'capacity');
+        if (inserted) {
+          this._onScroll.fire({ position: buffer.ydisp });
+          this.refresh(0, this.rows - 1);
+        }
+      });
+    });
   }
 
   /**

@@ -1195,6 +1195,28 @@ describe('Terminal', () => {
     });
   });
 
+  describe('prependScrollback', () => {
+    it('cancels a page at resize and preserves writes behind a paused parser', async () => {
+      const terminal = new TestTerminal({ cols: 10, rows: 3 });
+      await terminal.writeP('first\r\nsecond\r\nthird\r\nfourth');
+      const { ybase, y } = terminal.buffer;
+      const head = terminal.registerMarker(-ybase - y);
+      let releaseHandler!: (value: boolean) => void;
+      terminal.registerOscHandler(1337, () => new Promise<boolean>(resolve => { releaseHandler = resolve; }));
+      terminal.write('\x1b]1337;pause\x07');
+      const page = terminal.prependScrollback([{ cells: [{ text: 'P', width: 1 }] }], { columns: 10, head });
+      const tail = terminal.writeP('!');
+      terminal.resize(9, 3);
+
+      assert.equal(await page, 'stale');
+      assert.equal(head.line, 0);
+      releaseHandler(true);
+      await tail;
+      assert.equal(terminal.buffer.lines.get(0)?.translateToString(true), 'first');
+      assert.equal(terminal.buffer.lines.get(3)?.translateToString(true), 'fourth!');
+    });
+  });
+
   // FIXME: move to common/CoreTerminal.test once the trimming is moved over
   describe('marker lifecycle', () => {
     // create a 10x5 terminal with markers on every line

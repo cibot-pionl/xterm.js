@@ -33,6 +33,9 @@ const enum Constants {
   WRITE_BUFFER_LENGTH_THRESHOLD = 50
 }
 
+// A queue entry that runs its callback without passing bytes to the parser.
+const CALLBACK_ONLY_WRITE = new Uint8Array(0);
+
 export class WriteBuffer extends Disposable {
   private _writeBuffer: (string | Uint8Array)[] = [];
   private _callbacks: ((() => void) | undefined)[] = [];
@@ -89,7 +92,7 @@ export class WriteBuffer extends Disposable {
     let isPaused = false;
     while (this._bufferOffset < this._writeBuffer.length) {
       const data = this._writeBuffer[this._bufferOffset];
-      const result = this._action(data);
+      const result = data === CALLBACK_ONLY_WRITE ? undefined : this._action(data);
       if (result) {
         // Keep a scheduled _innerWrite from feeding the paused parser.
         this._innerWriteTimer.cancel();
@@ -153,7 +156,9 @@ export class WriteBuffer extends Disposable {
     // by another writeSync call triggered from _action
     let chunk: string | Uint8Array | undefined;
     while (chunk = this._writeBuffer.shift()) {
-      this._action(chunk);
+      if (chunk !== CALLBACK_ONLY_WRITE) {
+        this._action(chunk);
+      }
       const cb = this._callbacks.shift();
       if (cb) cb();
     }
@@ -167,11 +172,15 @@ export class WriteBuffer extends Disposable {
     this._syncCalls = 0;
   }
 
+  public enqueueCallback(callback: () => void): void {
+    this.write(CALLBACK_ONLY_WRITE, callback);
+  }
+
   public write(data: string | Uint8Array, callback?: () => void): void {
     if (this._store.isDisposed) {
       return;
     }
-    if (this._pendingData > Constants.DISCARD_WATERMARK) {
+    if (data !== CALLBACK_ONLY_WRITE && this._pendingData > Constants.DISCARD_WATERMARK) {
       throw new Error('write data discarded, use flow control to avoid losing data');
     }
 
@@ -242,7 +251,7 @@ export class WriteBuffer extends Disposable {
     const startTime = lastTime || performance.now();
     while (this._writeBuffer.length > this._bufferOffset) {
       const data = this._writeBuffer[this._bufferOffset];
-      const result = this._action(data, promiseResult);
+      const result = data === CALLBACK_ONLY_WRITE ? undefined : this._action(data, promiseResult);
       if (result) {
         /**
          * If we get a promise as return value, we re-schedule the continuation

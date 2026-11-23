@@ -187,6 +187,26 @@ describe('WriteBuffer', () => {
       await new Promise<void>(resolve => wb.write('c', resolve));
       assert.deepEqual(stack, ['a', 'b', 'c']);
     });
+    it('keeps callback-only entries behind a paused parser and skips parsing them', async () => {
+      const handler = new PausingAction('pause');
+      wb = new WriteBuffer(handler.action);
+      wb.write('pause', () => { cbStack.push('pause'); });
+      wb.enqueueCallback(() => {
+        assert.deepEqual(handler.chunks, ['pause', 'pause']);
+        cbStack.push('fence');
+      });
+      const drained = new Promise<void>(resolve => wb.write('tail', resolve));
+
+      wb.flushSyncAttempt();
+      wb.flushSyncAttempt();
+      assert.deepEqual(handler.chunks, ['pause']);
+      assert.deepEqual(cbStack, []);
+
+      handler.resolve(true);
+      await drained;
+      assert.deepEqual(handler.chunks, ['pause', 'pause', 'tail']);
+      assert.deepEqual(cbStack, ['pause', 'fence']);
+    });
     it('flushSyncAttempt processes empty chunks and their callbacks', () => {
       wb.write('a', () => { cbStack.push('a'); });
       wb.write('', () => { cbStack.push('empty string'); });

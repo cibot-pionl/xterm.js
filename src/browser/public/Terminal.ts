@@ -5,14 +5,14 @@
 
 import * as Strings from '../LocalizableStrings';
 import { CoreBrowserTerminal as TerminalCore } from '../CoreBrowserTerminal';
-import { IBufferRange, ITerminal } from '../Types';
+import { IBufferRange } from '../Types';
 import { Disposable } from '../../common/Lifecycle';
 import { ITerminalOptions } from '../../common/Types';
 import { AddonManager } from '../../common/public/AddonManager';
 import { BufferNamespaceApi } from '../../common/public/BufferNamespaceApi';
 import { ParserApi } from '../../common/public/ParserApi';
 import { UnicodeApi } from '../../common/public/UnicodeApi';
-import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling } from '@xterm/xterm';
+import { IBufferNamespace as IBufferNamespaceApi, IDecoration, IDecorationOptions, IDisposable, ILinkProvider, ILocalizableStrings, IMarker, IModes, IParser, IRenderDimensions, ITerminalAddon, Terminal as ITerminalApi, ITerminalInitOnlyOptions, IUnicodeHandling, IPrependScrollbackOptions, IScrollbackRow, PrependScrollbackResult } from '@xterm/xterm';
 import type { IEvent } from '../../common/Event';
 
 /**
@@ -23,7 +23,7 @@ const CONSTRUCTOR_ONLY_OPTIONS = ['cols', 'rows'];
 let $value = 0;
 
 export class Terminal extends Disposable implements ITerminalApi {
-  private _core: ITerminal;
+  private _core: TerminalCore;
   private _addonManager: AddonManager;
   private _parser: IParser | undefined;
   private _buffer: BufferNamespaceApi | undefined;
@@ -223,6 +223,10 @@ export class Terminal extends Disposable implements ITerminalApi {
   }
   public write(data: string | Uint8Array, callback?: () => void): void {
     this._core.write(data, callback);
+  }
+  public prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult> {
+    this._checkProposedApi();
+    return this._core.prependScrollback(rows, options);
   }
   public writeln(data: string | Uint8Array, callback?: () => void): void {
     this._core.write(data);
