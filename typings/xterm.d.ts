@@ -608,6 +608,15 @@ declare module '@xterm/xterm' {
     readonly signal?: AbortSignal;
   }
 
+  /** Options for shifting a detached normal-buffer reading window. */
+  export interface IScrollbackWindowUpdate {
+    readonly columns: number;
+    readonly direction: 'older' | 'newer';
+    /** Drops rows from the opposite end of the window. */
+    readonly discard: number;
+    readonly signal?: AbortSignal;
+  }
+
   export type PrependScrollbackResult = 'inserted' | 'stale' | 'capacity' | 'invalid';
 
   /**
@@ -1416,6 +1425,19 @@ declare module '@xterm/xterm' {
      * fit within scrollback, the buffer is left as is.
      */
     prependScrollback(rows: ReadonlyArray<IScrollbackRow>, options: IPrependScrollbackOptions): Promise<PrependScrollbackResult>;
+
+    /**
+     * Experimental. The viewport scrolls within an archived prefix while the
+     * live screen parses independently. Enable while the full viewport is
+     * above the live screen. Rejoin at a contiguous boundary.
+     */
+    setScrollbackWindowActive(active: boolean): boolean;
+
+    /**
+     * Experimental. Adds rows at one end of the reading window and discards
+     * rows from the other. Retained rows must contain the current viewport.
+     */
+    updateScrollbackWindow(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackWindowUpdate): Promise<PrependScrollbackResult>;
 
     /**
      * Writes data to the terminal, followed by a break line character (\n).

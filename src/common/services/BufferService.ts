@@ -24,6 +24,17 @@ export class BufferService extends Disposable implements IBufferService {
   /** Whether the user is scrolling (locks the scroll position) */
   public isUserScrolling: boolean = false;
 
+  /** Keep the archived prefix separate from the live viewport during a history read. */
+  public scrollbackWindowActive = false;
+
+  private get _isReadingScrollback(): boolean {
+    return this.scrollbackWindowActive && this.buffer === this.buffers.normal;
+  }
+
+  public get scrollableRows(): number {
+    return this._isReadingScrollback ? this.buffer.ybase : this.buffer.lines.length;
+  }
+
   private readonly _onResize = this._register(new Emitter<IBufferResizeEvent>());
   public readonly onResize = this._onResize.event;
   private readonly _onScroll = this._register(new Emitter<number>());
@@ -57,6 +68,7 @@ export class BufferService extends Disposable implements IBufferService {
   }
 
   public reset(): void {
+    this.scrollbackWindowActive = false;
     this.buffers.reset();
     this.isUserScrolling = false;
   }
@@ -81,7 +93,7 @@ export class BufferService extends Disposable implements IBufferService {
     const topRow = buffer.ybase + buffer.scrollTop;
     const bottomRow = buffer.ybase + buffer.scrollBottom;
 
-    if (buffer.scrollTop === 0) {
+    if (buffer.scrollTop === 0 && !this._isReadingScrollback) {
       // Determine whether the buffer is going to be trimmed after insertion.
       const willBufferBeTrimmed = buffer.lines.isFull;
 
@@ -120,7 +132,7 @@ export class BufferService extends Disposable implements IBufferService {
 
     // Move the viewport to the bottom of the buffer unless the user is
     // scrolling.
-    if (!this.isUserScrolling) {
+    if (!this.isUserScrolling && !this._isReadingScrollback) {
       buffer.ydisp = buffer.ybase;
     }
 
@@ -136,17 +148,18 @@ export class BufferService extends Disposable implements IBufferService {
    */
   public scrollLines(disp: number, suppressScrollEvent?: boolean): void {
     const buffer = this.buffer;
+    const end = this._isReadingScrollback ? Math.max(0, buffer.ybase - this.rows) : buffer.ybase;
     if (disp < 0) {
       if (buffer.ydisp === 0) {
         return;
       }
       this.isUserScrolling = true;
-    } else if (disp + buffer.ydisp >= buffer.ybase) {
+    } else if (!this._isReadingScrollback && disp + buffer.ydisp >= end) {
       this.isUserScrolling = false;
     }
 
     const oldYdisp = buffer.ydisp;
-    buffer.ydisp = Math.max(Math.min(buffer.ydisp + disp, buffer.ybase), 0);
+    buffer.ydisp = Math.max(Math.min(buffer.ydisp + disp, end), 0);
 
     // No change occurred, don't trigger scroll/refresh
     if (oldYdisp === buffer.ydisp) {

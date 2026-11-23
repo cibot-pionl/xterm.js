@@ -21,7 +21,7 @@
  *   http://linux.die.net/man/7/urxvt
  */
 
-import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi, IPrependScrollbackOptions, IScrollbackRow, PrependScrollbackResult } from '@xterm/xterm';
+import { IDecoration, IDecorationOptions, IDisposable, ILinkProvider, IMarker, IRenderDimensions as IRenderDimensionsApi, IPrependScrollbackOptions, IScrollbackRow, IScrollbackWindowUpdate, PrependScrollbackResult } from '@xterm/xterm';
 import { copyHandler, handlePasteEvent, moveTextAreaUnderMouseCursor, paste, rightClickHandler } from './Clipboard';
 import * as Strings from './LocalizableStrings';
 import { OscLinkProvider } from './OscLinkProvider';
@@ -75,7 +75,8 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
   public get linkifier(): ILinkifier2 | undefined { return this._linkifier.value; }
   private _overviewRulerRenderer: OverviewRulerRenderer | undefined;
   private _viewport: Viewport | undefined;
-  private _cancelScrollbackPrepend: (() => void) | undefined;
+  private _cancelScrollbackEdit: (() => void) | undefined;
+  private _scrollbackWindowEpoch = 0;
 
   public browser: IBrowser = Browser as any;
 
@@ -188,6 +189,13 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     this._register(this._inputHandler.onRequestRefreshRows((e) => this.refresh(e?.start ?? 0, e?.end ?? (this.rows - 1))));
     this._register(this._inputHandler.onRequestSendFocus(() => this._reportFocus()));
     this._register(this._inputHandler.onRequestReset(() => this.reset()));
+    this._register(this._inputHandler.onScroll(() => {
+      if (this._bufferService.scrollbackWindowActive && this.buffer === this.buffers.normal &&
+          this.buffer.ybase < this.rows) {
+        this._cancelScrollbackEdit?.();
+        this.setScrollbackWindowActive(false);
+      }
+    }));
     this._register(this._inputHandler.onRequestWindowsOptionsReport(type => this._reportWindowsOptions(type)));
     this._register(this._inputHandler.onColor((event) => this._handleColorEvent(event)));
     this._register(EventUtils.forward(this._inputHandler.onCursorMove, this._onCursorMove));
@@ -198,9 +206,12 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     // Setup listeners
     this._register(this._bufferService.onResize(e => this._afterResize(e.cols, e.rows)));
 
-    this._register(this.buffers.onBufferActivate(() => this._cancelScrollbackPrepend?.()));
+    this._register(this.buffers.onBufferActivate(() => {
+      this._cancelScrollbackEdit?.();
+      this._scrollbackWindowEpoch++;
+    }));
     this._register(toDisposable(() => {
-      this._cancelScrollbackPrepend?.();
+      this._cancelScrollbackEdit?.();
       this._customKeyEventHandler = undefined;
       this.element?.parentNode?.removeChild(this.element);
     }));
@@ -1076,8 +1087,26 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
       return;
     }
 
-    this._cancelScrollbackPrepend?.();
+    this._cancelScrollbackEdit?.();
+    this._scrollbackWindowEpoch++;
+    this._discardScrollbackWindow();
     super.resize(x, y);
+  }
+
+  private _discardScrollbackWindow(): void {
+    if (!this._bufferService.scrollbackWindowActive) {
+      return;
+    }
+    this._bufferService.scrollbackWindowActive = false;
+    const buffer = this.buffers.normal;
+    if (this.buffer === buffer) {
+      this._selectionService?.clearSelection();
+      this._bufferService.isUserScrolling = false;
+    }
+    buffer.lines.splice(0, buffer.ybase);
+    buffer.savedY = Math.max(0, buffer.savedY - buffer.ybase);
+    buffer.ybase = 0;
+    buffer.ydisp = 0;
   }
 
   private _afterResize(x: number, y: number): void {
@@ -1092,7 +1121,7 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
       buffer === this.buffer && lines === buffer.lines && columns === this.cols &&
       head.line === 0 && buffer.markers.includes(head);
 
-    if (this._store.isDisposed || this._cancelScrollbackPrepend || signal?.aborted || !isCurrentHead()) {
+    if (this._store.isDisposed || this._cancelScrollbackEdit || signal?.aborted || !isCurrentHead()) {
       return Promise.resolve('stale');
     }
     if (!rows.length) {
@@ -1108,13 +1137,13 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
 
     return new Promise(resolve => {
       const finish = (result: PrependScrollbackResult): void => {
-        this._cancelScrollbackPrepend = undefined;
+        this._cancelScrollbackEdit = undefined;
         signal?.removeEventListener('abort', cancel);
         page = undefined;
         resolve(result);
       };
       const cancel = (): void => finish('stale');
-      this._cancelScrollbackPrepend = cancel;
+      this._cancelScrollbackEdit = cancel;
       signal?.addEventListener('abort', cancel, { once: true });
 
       this._enqueueAfterWrites(() => {
@@ -1146,10 +1175,95 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
     });
   }
 
+  public setScrollbackWindowActive(active: boolean): boolean {
+    const service = this._bufferService;
+    const buffer = this.buffer;
+    if (buffer !== this.buffers.normal || (active && buffer.ydisp + this.rows > buffer.ybase)) {
+      return false;
+    }
+    if (service.scrollbackWindowActive === active) {
+      return true;
+    }
+    this._scrollbackWindowEpoch++;
+    service.scrollbackWindowActive = active;
+    this._onScroll.fire({ position: buffer.ydisp });
+    this.refresh(0, this.rows - 1);
+    return true;
+  }
+
+  public async updateScrollbackWindow(rows: ReadonlyArray<IScrollbackRow>, options: IScrollbackWindowUpdate): Promise<PrependScrollbackResult> {
+    const { columns, direction, discard, signal } = options;
+    const buffer = this.buffer;
+    const epoch = this._scrollbackWindowEpoch;
+    if (this._store.isDisposed || this._cancelScrollbackEdit || signal?.aborted ||
+        !this._bufferService.scrollbackWindowActive || columns !== this.cols) {
+      return 'stale';
+    }
+    if (!Number.isInteger(discard) || discard < 0 || !rows.length) {
+      return 'invalid';
+    }
+    let page = createScrollbackLines(rows, columns);
+    if (!page) {
+      return 'invalid';
+    }
+    return new Promise<PrependScrollbackResult>(resolve => {
+      const finish = (result: PrependScrollbackResult): void => {
+        this._cancelScrollbackEdit = undefined;
+        signal?.removeEventListener('abort', cancel);
+        page = undefined;
+        resolve(result);
+      };
+      const cancel = (): void => finish('stale');
+      this._cancelScrollbackEdit = cancel;
+      signal?.addEventListener('abort', cancel, { once: true });
+      this._enqueueAfterWrites(() => {
+        if (!page) {
+          return;
+        }
+        if (signal?.aborted || epoch !== this._scrollbackWindowEpoch ||
+            !this._bufferService.scrollbackWindowActive ||
+            buffer !== this.buffer || buffer !== this.buffers.normal || columns !== this.cols) {
+          finish('stale');
+          return;
+        }
+
+        const older = direction === 'older';
+        const start = older ? 0 : discard;
+        const end = older ? buffer.ybase - discard : buffer.ybase;
+        if (start > buffer.ydisp || end < buffer.ydisp + this.rows) {
+          finish('stale');
+          return;
+        }
+        if (buffer.lines.get(start)?.isWrapped || buffer.lines.get(end)?.isWrapped) {
+          finish('invalid');
+          return;
+        }
+        const change = page.length - discard;
+        if (buffer.lines.length + change > buffer.lines.maxLength) {
+          finish('capacity');
+          return;
+        }
+        const shift = older ? page.length : -discard;
+        this._selectionService?.rebaseSelectionForScrollback(start, end, shift);
+        buffer.lines.splice(older ? end : 0, discard);
+        buffer.lines.splice(older ? 0 : buffer.ybase - discard, 0, ...page);
+        buffer.ydisp += shift;
+        buffer.ybase += change;
+        buffer.savedY = Math.max(0, buffer.savedY + change);
+        this._onScroll.fire({ position: buffer.ydisp });
+        this.refresh(0, this.rows - 1);
+        finish('inserted');
+      });
+    });
+  }
+
   /**
    * Clear the entire buffer, making the prompt line the new first line.
    */
   public clear(): void {
+    this._cancelScrollbackEdit?.();
+    this._scrollbackWindowEpoch++;
+    this._bufferService.scrollbackWindowActive = false;
     this.buffer.clearAllMarkers();
     this.buffer.lines.set(0, this.buffer.lines.get(this.buffer.ybase + this.buffer.y)!);
     this.buffer.lines.length = 1;

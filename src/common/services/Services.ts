@@ -18,6 +18,7 @@ export interface IBufferService {
   readonly buffer: IBuffer;
   readonly buffers: IBufferSet;
   isUserScrolling: boolean;
+  readonly scrollableRows: number;
   onResize: IEvent<IBufferResizeEvent>;
   onScroll: IEvent<number>;
   scroll(eraseAttr: IAttributeData, isWrapped?: boolean): void;

@@ -271,6 +271,16 @@ export class SelectionService extends Disposable implements ISelectionService {
     this._onSelectionChange.fire();
   }
 
+  public rebaseSelectionForScrollback(start: number, end: number, amount: number): void {
+    const selectionStart = this._model.finalSelectionStart;
+    const selectionEnd = this._model.finalSelectionEnd;
+    if (selectionStart && selectionEnd && (selectionStart[1] < start || selectionEnd[1] >= end)) {
+      this.clearSelection();
+      return;
+    }
+    this.rebaseSelectionForPrepend(amount);
+  }
+
   public rebaseSelectionForPrepend(amount: number): void {
     if (this._model.isSelectAllActive) {
       this._model.selectionStart = this._model.finalSelectionStart;

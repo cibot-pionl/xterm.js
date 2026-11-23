@@ -60,7 +60,7 @@ export interface ICoreTerminal {
 
 export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
   protected readonly _instantiationService: IInstantiationService;
-  protected readonly _bufferService: IBufferService;
+  protected readonly _bufferService: BufferService;
   protected readonly _logService: ILogService;
   protected readonly _charsetService: ICharsetService;
   protected readonly _oscLinkService: IOscLinkService;

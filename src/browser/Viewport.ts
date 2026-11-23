@@ -153,19 +153,14 @@ export class Viewport extends Disposable {
     };
   }
 
-  public queueSync(ydisp?: number): void {
-    // Update state
-    if (ydisp !== undefined) {
-      this._latestYDisp = ydisp;
-    }
-
+  public queueSync(): void {
     // Don't queue more than one callback
     if (this._queuedAnimationFrame !== undefined) {
       return;
     }
     this._queuedAnimationFrame = this._renderService.addRefreshCallback(() => {
       this._queuedAnimationFrame = undefined;
-      this._sync(this._latestYDisp);
+      this._sync();
     });
   }
 
@@ -186,7 +181,7 @@ export class Viewport extends Disposable {
     this._suppressOnScrollHandler = true;
     this._scrollableElement.setScrollDimensions({
       height: this._renderService.dimensions.css.canvas.height,
-      scrollHeight: this._renderService.dimensions.css.cell.height * this._bufferService.buffer.lines.length
+      scrollHeight: this._renderService.dimensions.css.cell.height * this._bufferService.scrollableRows
     });
     this._suppressOnScrollHandler = false;
 
@@ -211,8 +206,8 @@ export class Viewport extends Disposable {
     this._isHandlingScroll = true;
     const newRow = Math.round(e.scrollTop / this._renderService.dimensions.css.cell.height);
     const diff = newRow - this._bufferService.buffer.ydisp;
+    this._latestYDisp = newRow;
     if (diff !== 0) {
-      this._latestYDisp = newRow;
       this._onRequestScrollLines.fire(diff);
     }
     this._isHandlingScroll = false;

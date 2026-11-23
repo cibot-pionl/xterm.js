@@ -28,6 +28,7 @@ export function extendedAttributes(line: IBufferLine, index: number): IExtendedA
 export const NULL_CELL_DATA = Object.freeze(createCellData(DEFAULT_ATTR, NULL_CELL_CHAR, NULL_CELL_WIDTH));
 
 export class MockBufferService implements IBufferService {
+  public get scrollableRows(): number { return this.buffer.lines.length; }
   public serviceBrand: any;
   public get buffer(): IBuffer { return this.buffers.active; }
   public buffers: IBufferSet = {} as any;

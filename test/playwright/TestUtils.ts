@@ -116,7 +116,7 @@ interface ITerminalProxyCustomMethods {
 type TerminalProxyAsyncPropOverrides = 'cols' | 'rows' | 'modes';
 type TerminalProxyAsyncMethodOverrides = 'hasSelection' | 'getSelection' | 'getSelectionPosition' | 'registerMarker' | 'registerDecoration';
 // Call prependScrollback in the browser where the marker and abort signal live.
-type TerminalProxyCustomOverrides = 'buffer' | 'dimensions' | 'prependScrollback' | (
+type TerminalProxyCustomOverrides = 'buffer' | 'dimensions' | 'prependScrollback' | 'setScrollbackWindowActive' | 'updateScrollbackWindow' | (
   // The below are not implemented yet
   'element' |
   'screenElement' |

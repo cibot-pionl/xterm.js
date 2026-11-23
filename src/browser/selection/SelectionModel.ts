@@ -68,7 +68,8 @@ export class SelectionModel {
    */
   public get finalSelectionEnd(): [number, number] | undefined {
     if (this.isSelectAllActive) {
-      return [this._bufferService.cols, this._bufferService.buffer.ybase + this._bufferService.rows - 1];
+      const screenEnd = this._bufferService.buffer.ybase + this._bufferService.rows;
+      return [this._bufferService.cols, Math.min(this._bufferService.scrollableRows, screenEnd) - 1];
     }
 
     if (!this.selectionStart) {
